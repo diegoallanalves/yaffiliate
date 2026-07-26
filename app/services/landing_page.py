@@ -1,0 +1,7 @@
+from html import escape
+from pathlib import Path
+OUT=Path(__file__).resolve().parents[2]/'outputs'/'landing_pages'
+def generate_html(product,audience,benefit,cta,url):
+    p,a,b,c,u=map(escape,[product,audience,benefit,cta,url])
+    html=f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{p}</title><style>body{{margin:0;font-family:Arial;background:#07111f;color:#f8fafc}}main{{min-height:100vh;display:grid;place-items:center;padding:32px}}section{{max-width:900px;padding:52px;border:1px solid #334155;border-radius:28px;background:#0f172a}}h1{{font-size:clamp(44px,7vw,82px);line-height:1}}p{{color:#cbd5e1;font-size:20px;line-height:1.6}}a{{display:inline-block;padding:16px 24px;background:white;color:#07111f;text-decoration:none;border-radius:14px;font-weight:800}}</style></head><body><main><section><small>INDEPENDENT AFFILIATE PRESENTATION</small><h1>{p}</h1><p>Designed for {a} who want to {b}.</p><p>Review the official offer, terms, pricing and evidence before purchasing.</p><a href="{u}" rel="nofollow sponsored noopener" target="_blank">{c}</a><p><small>Affiliate disclosure: this page may earn a commission. No result is guaranteed.</small></p></section></main></body></html>"""
+    OUT.mkdir(parents=True,exist_ok=True); slug=''.join(ch.lower() if ch.isalnum() else '-' for ch in product).strip('-'); path=OUT/f'{slug or "landing-page"}.html'; path.write_text(html,encoding='utf-8'); return html,str(path)
