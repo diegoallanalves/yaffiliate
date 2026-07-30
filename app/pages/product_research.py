@@ -8,50 +8,30 @@ import streamlit as st
 
 from app.components.layout import page_header
 from app.repositories.product_repository import ProductRepository
+from app.repositories.recommendation_repository import (
+    RecommendationRepository,
+)
+from app.services.opportunity_score_service import (
+    OpportunityFactors,
+    OpportunityScoreService,
+)
+from app.services.recommendation_service import RecommendationService
 
+from app.repositories.opportunity_history_repository import (
+    OpportunityHistoryRepository,
+)
+
+opportunity_history_repo = OpportunityHistoryRepository()
 
 repo = ProductRepository()
+recommendation_repo = RecommendationRepository()
 
-
-def calculate_opportunity_score(
-    *,
-    commission_amount: float,
-    commission_percent: float,
-    estimated_cpc: float,
-    search_volume: int,
-    competition_score: float,
-    google_trend_score: float,
-    refund_rate: float,
-) -> float:
-    """
-    Temporary transparent scoring formula.
-
-    This can later be replaced by a statistically validated model.
-    """
-
-    commission_component = min(commission_amount / 300, 1) * 25
-    commission_percent_component = min(commission_percent / 100, 1) * 10
-    volume_component = min(search_volume / 10_000, 1) * 20
-    trend_component = min(google_trend_score / 100, 1) * 15
-
-    cpc_component = max(0, 1 - estimated_cpc / 10) * 10
-    competition_component = max(0, 1 - competition_score / 100) * 15
-    refund_component = max(0, 1 - refund_rate / 100) * 5
-
-    score = (
-        commission_component
-        + commission_percent_component
-        + volume_component
-        + trend_component
-        + cpc_component
-        + competition_component
-        + refund_component
-    )
-
-    return round(min(max(score, 0), 100), 2)
+score_service = OpportunityScoreService()
+recommendation_service = RecommendationService()
 
 
 def decimal_to_float(value: object) -> float | None:
+    """Convert SQL Server Decimal values into Python floats."""
     if value is None:
         return None
 
@@ -73,6 +53,7 @@ def render() -> None:
 
     try:
         networks = repo.list_affiliate_networks()
+
     except Exception as exc:
         st.error(f"Unable to load affiliate networks: {exc}")
         networks = []
@@ -82,11 +63,19 @@ def render() -> None:
         for network in networks
     }
 
-    with st.expander("Add a product", expanded=True):
-        with st.form("add_product_form", clear_on_submit=True):
+    with st.expander(
+        "Add a product",
+        expanded=True,
+    ):
+        with st.form(
+            "add_product_form",
+            clear_on_submit=True,
+        ):
             row1_col1, row1_col2, row1_col3 = st.columns(3)
 
-            product_name = row1_col1.text_input("Product name")
+            product_name = row1_col1.text_input(
+                "Product name"
+            )
 
             selected_network_id = row1_col2.selectbox(
                 "Affiliate network",
@@ -98,7 +87,9 @@ def render() -> None:
                 ),
             )
 
-            category = row1_col3.text_input("Category")
+            category = row1_col3.text_input(
+                "Category"
+            )
 
             row2_col1, row2_col2, row2_col3 = st.columns(3)
 
@@ -114,17 +105,19 @@ def render() -> None:
                 max_chars=20,
             )
 
+            status_options = [
+                "Research",
+                "Shortlist",
+                "Testing",
+                "Active",
+                "Paused",
+                "Rejected",
+                "Archived",
+            ]
+
             status = row2_col3.selectbox(
                 "Status",
-                [
-                    "Research",
-                    "Shortlist",
-                    "Testing",
-                    "Active",
-                    "Paused",
-                    "Rejected",
-                    "Archived",
-                ],
+                status_options,
             )
 
             row3_col1, row3_col2, row3_col3 = st.columns(3)
@@ -199,9 +192,17 @@ def render() -> None:
                 step=1.0,
             )
 
-            sales_page_url = st.text_input("Sales-page URL")
-            affiliate_url = st.text_input("Affiliate URL")
-            notes = st.text_area("Notes")
+            sales_page_url = st.text_input(
+                "Sales-page URL"
+            )
+
+            affiliate_url = st.text_input(
+                "Affiliate URL"
+            )
+
+            notes = st.text_area(
+                "Notes"
+            )
 
             save_product = st.form_submit_button(
                 "Save product to SQL Server",
@@ -214,14 +215,20 @@ def render() -> None:
 
         else:
             try:
-                opportunity_score = calculate_opportunity_score(
-                    commission_amount=commission_amount,
-                    commission_percent=commission_percent,
-                    estimated_cpc=estimated_cpc,
+                opportunity_factors = OpportunityFactors(
+                    commission_amount=float(commission_amount),
+                    commission_percent=float(commission_percent),
                     search_volume=int(search_volume),
-                    competition_score=competition_score,
-                    google_trend_score=google_trend_score,
-                    refund_rate=refund_rate,
+                    competition_score=float(competition_score),
+                    estimated_cpc=float(estimated_cpc),
+                    google_trend_score=float(google_trend_score),
+                    refund_rate=float(refund_rate),
+                    gravity_score=float(gravity_score),
+                    epc=float(epc),
+                )
+
+                opportunity_score = score_service.calculate(
+                    opportunity_factors
                 )
 
                 product_id = repo.create_product(
@@ -230,9 +237,9 @@ def render() -> None:
                     category=category or None,
                     language_code=language_code or None,
                     country_code=country_code or None,
-                    price=price,
-                    commission_amount=commission_amount,
-                    commission_percent=commission_percent,
+                    price=float(price),
+                    commission_amount=float(commission_amount),
+                    commission_percent=float(commission_percent),
                     sales_page_url=sales_page_url or None,
                     affiliate_url=affiliate_url or None,
                     status=status,
@@ -241,19 +248,58 @@ def render() -> None:
 
                 repo.add_product_metric(
                     product_id=product_id,
-                    epc=epc,
-                    gravity_score=gravity_score,
+                    epc=float(epc),
+                    gravity_score=float(gravity_score),
                     search_volume=int(search_volume),
-                    competition_score=competition_score,
-                    estimated_cpc=estimated_cpc,
-                    google_trend_score=google_trend_score,
-                    refund_rate=refund_rate,
+                    competition_score=float(competition_score),
+                    estimated_cpc=float(estimated_cpc),
+                    google_trend_score=float(google_trend_score),
+                    refund_rate=float(refund_rate),
                     opportunity_score=opportunity_score,
                     data_source="Manual Streamlit entry",
                 )
 
+                opportunity_history_repo.create_snapshot(
+                    product_id=product_id,
+                    opportunity_score=opportunity_score,
+                    epc=float(epc),
+                    gravity_score=float(gravity_score),
+                    search_volume=int(search_volume),
+                    competition_score=float(competition_score),
+                    estimated_cpc=float(estimated_cpc),
+                    google_trend_score=float(google_trend_score),
+                    refund_rate=float(refund_rate),
+                )
+
+                recommendation = recommendation_service.generate(
+                    opportunity_score=opportunity_score,
+                    factors=opportunity_factors,
+                )
+
+                recommendation_id = (
+                    recommendation_repo.create_recommendation(
+                        product_id=product_id,
+                        recommendation=recommendation,
+                    )
+                )
+
+                st.session_state[
+                    "latest_recommendation"
+                ] = recommendation
+
+                st.session_state[
+                    "latest_recommendation_id"
+                ] = recommendation_id
+
+                st.session_state[
+                    "latest_product_id"
+                ] = product_id
+
                 st.success(
-                    f"Product saved successfully. Product ID: {product_id}"
+                    f"Product saved successfully. "
+                    f"Product ID: {product_id}. "
+                    f"Recommendation ID: {recommendation_id}. "
+                    f"Opportunity Score: {opportunity_score}/100"
                 )
 
                 st.rerun()
@@ -262,6 +308,78 @@ def render() -> None:
                 st.exception(exc)
 
     st.subheader("Saved products")
+
+    latest_recommendation = st.session_state.get(
+        "latest_recommendation"
+    )
+
+    latest_recommendation_id = st.session_state.get(
+        "latest_recommendation_id"
+    )
+
+    latest_product_id = st.session_state.get(
+        "latest_product_id"
+    )
+
+    if latest_recommendation is not None:
+        st.subheader("Latest Filtrify Recommendation")
+
+        if latest_product_id is not None:
+            st.caption(
+                f"Product ID: {latest_product_id}"
+            )
+
+        if latest_recommendation_id is not None:
+            st.caption(
+                f"Recommendation ID: {latest_recommendation_id}"
+            )
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric(
+            "Opportunity",
+            f"{latest_recommendation.opportunity_score:.1f}/100",
+            latest_recommendation.opportunity_level,
+        )
+
+        col2.metric(
+            "Risk",
+            latest_recommendation.risk_level,
+        )
+
+        col3.metric(
+            "Expected ROI",
+            latest_recommendation.expected_roi,
+        )
+
+        st.write(
+            f"**Recommended channel:** "
+            f"{latest_recommendation.recommended_channel}"
+        )
+
+        st.write(
+            f"**Difficulty:** "
+            f"{latest_recommendation.difficulty}"
+        )
+
+        st.write(
+            f"**Suggested test budget:** "
+            f"R$ {latest_recommendation.recommended_budget:,.2f}"
+        )
+
+        st.markdown(
+            "### Why Filtrify recommends this"
+        )
+
+        for reason in latest_recommendation.reasoning:
+            st.write(f"- {reason}")
+
+        st.markdown(
+            "### Next actions"
+        )
+
+        for action in latest_recommendation.next_actions:
+            st.write(f"- {action}")
 
     search_col, status_col = st.columns(2)
 
@@ -286,19 +404,29 @@ def render() -> None:
 
     try:
         products = repo.list_products(
-            status=None if status_filter == "All" else status_filter,
+            status=(
+                None
+                if status_filter == "All"
+                else status_filter
+            ),
             search=search_text or None,
         )
 
     except Exception as exc:
-        st.error(f"Unable to load products: {exc}")
+        st.error(
+            f"Unable to load products: {exc}"
+        )
         products = []
 
     if not products:
-        st.info("No products found in SQL Server.")
+        st.info(
+            "No products found in SQL Server."
+        )
         return
 
-    products_df = pd.DataFrame(products)
+    products_df = pd.DataFrame(
+        products
+    )
 
     numeric_columns = [
         "Price",
@@ -315,11 +443,13 @@ def render() -> None:
 
     for column in numeric_columns:
         if column in products_df.columns:
-            products_df[column] = products_df[column].apply(
-                lambda value: (
-                    decimal_to_float(value)
-                    if value is not None
-                    else None
+            products_df[column] = (
+                products_df[column].apply(
+                    lambda value: (
+                        decimal_to_float(value)
+                        if value is not None
+                        else None
+                    )
                 )
             )
 
@@ -330,14 +460,22 @@ def render() -> None:
         len(products_df),
     )
 
-    average_commission = products_df["CommissionAmount"].fillna(0).mean()
+    average_commission = (
+        products_df["CommissionAmount"]
+        .fillna(0)
+        .mean()
+    )
 
     metric_col2.metric(
         "Average commission",
         f"R$ {average_commission:,.2f}",
     )
 
-    best_score = products_df["OpportunityScore"].fillna(0).max()
+    best_score = (
+        products_df["OpportunityScore"]
+        .fillna(0)
+        .max()
+    )
 
     metric_col3.metric(
         "Best opportunity score",
@@ -350,7 +488,7 @@ def render() -> None:
             "CommissionAmount",
             "OpportunityScore",
         ]
-    )
+    ).copy()
 
     if not chart_df.empty:
         chart_df["SearchVolume"] = (
@@ -371,6 +509,7 @@ def render() -> None:
                 "EstimatedCPC": "Estimated CPC",
                 "CommissionAmount": "Commission",
                 "OpportunityScore": "Opportunity score",
+                "SearchVolume": "Search volume",
             },
         )
 
@@ -387,12 +526,16 @@ def render() -> None:
         "Status",
         "Price",
         "CommissionAmount",
+        "CommissionPercent",
         "EPC",
+        "GravityScore",
         "SearchVolume",
         "EstimatedCPC",
         "CompetitionScore",
         "GoogleTrendScore",
+        "RefundRate",
         "OpportunityScore",
+        "MetricDate",
     ]
 
     available_columns = [
@@ -407,7 +550,9 @@ def render() -> None:
         width="stretch",
     )
 
-    csv_data = products_df.to_csv(index=False).encode("utf-8")
+    csv_data = products_df.to_csv(
+        index=False
+    ).encode("utf-8")
 
     st.download_button(
         "Export products as CSV",
@@ -421,7 +566,8 @@ def render() -> None:
 
     product_labels = {
         int(row["ProductID"]): (
-            f'{row["ProductID"]} — {row["ProductName"]}'
+            f'{row["ProductID"]} — '
+            f'{row["ProductName"]}'
         )
         for _, row in products_df.iterrows()
     }
@@ -429,11 +575,16 @@ def render() -> None:
     product_to_delete = st.selectbox(
         "Select product",
         options=list(product_labels.keys()),
-        format_func=lambda product_id: product_labels[product_id],
+        format_func=lambda product_id: (
+            product_labels[product_id]
+        ),
     )
 
     confirm_delete = st.checkbox(
-        "I understand that this will delete the product and its related records."
+        (
+            "I understand that this will delete the product "
+            "and its related records."
+        )
     )
 
     if st.button(
@@ -447,10 +598,15 @@ def render() -> None:
             )
 
             if deleted:
-                st.success("Product deleted.")
+                st.success(
+                    "Product deleted."
+                )
                 st.rerun()
+
             else:
-                st.warning("Product was not found.")
+                st.warning(
+                    "Product was not found."
+                )
 
         except Exception as exc:
             st.exception(exc)
