@@ -1,4 +1,9 @@
+"""Shared Filtrify navigation and page-header components."""
+
+from __future__ import annotations
+
 import streamlit as st
+
 
 NAV = {
     "🏠 Dashboard": "dashboard",
@@ -8,6 +13,8 @@ NAV = {
     "📈 Product Research": "product_research",
     "⭐ Product Discovery": "product_discovery",
     "✍️ AI Content Studio": "content_studio",
+    "🚀 Campaign Generator": "campaign_generator",
+    "🕘 Campaign History": "campaign_history",
     "🔍 Keyword Research": "keyword_research",
     "🤖 AI Assistant": "ai_assistant",
     "💰 Profit Calculator": "profit_calculator",
@@ -21,43 +28,47 @@ NAV = {
 }
 
 
-def sidebar_navigation():
+def sidebar_navigation() -> str:
+    """Render the Filtrify sidebar and return the selected route key."""
+
     with st.sidebar:
         st.markdown(
-            '''
+            """
             <h2>⚡ Filtrify AI</h2>
             <p class="muted">Affiliate Intelligence Platform</p>
-            ''',
+            """,
             unsafe_allow_html=True,
         )
 
-        label = st.radio(
-            'Navigation',
-            list(NAV),
-            label_visibility='collapsed'
+        selected_label = st.radio(
+            "Navigation",
+            options=list(NAV.keys()),
+            label_visibility="collapsed",
         )
 
         st.divider()
 
         st.caption(
-            'Development build · Milestone 3 — Product Intelligence'
+            "Development build · Campaign Generator MVP"
         )
 
-    return NAV[label]
+    return NAV[selected_label]
 
 
 def page_header(
-    eyebrow,
-    title,
-    subtitle,
-):
+    eyebrow: str,
+    title: str,
+    subtitle: str,
+) -> None:
+    """Render the shared Filtrify page header."""
+
     st.markdown(
-        f'''
+        f"""
         <section class="hero">
             <div class="eyebrow">{eyebrow}</div>
             <div class="title">{title}</div>
             <div class="subtitle">{subtitle}</div>
         </section>
-        ''',
+        """,
         unsafe_allow_html=True,
     )

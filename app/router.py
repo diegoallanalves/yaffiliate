@@ -1,20 +1,24 @@
+"""Application route configuration for Filtrify."""
+
 from app.pages import (
-    dashboard,
-    mission_center,
-    product_intelligence,
-    portfolio_intelligence,
-    product_research,
-    product_discovery,
-    content_studio,
-    keyword_research,
-    ai_assistant,
-    profit_calculator,
-    analytics,
-    landing_pages,
-    email_marketing,
-    seo,
-    google_ads,
     affiliate_products,
+    ai_assistant,
+    analytics,
+    campaign_generator,
+    campaign_history,
+    content_studio,
+    dashboard,
+    email_marketing,
+    google_ads,
+    keyword_research,
+    landing_pages,
+    mission_center,
+    portfolio_intelligence,
+    product_discovery,
+    product_intelligence,
+    product_research,
+    profit_calculator,
+    seo,
     settings,
 )
 
@@ -27,6 +31,8 @@ ROUTES = {
     "product_research": product_research.render,
     "product_discovery": product_discovery.render,
     "content_studio": content_studio.render,
+    "campaign_generator": campaign_generator.render,
+    "campaign_history": campaign_history.render,
     "keyword_research": keyword_research.render,
     "ai_assistant": ai_assistant.render,
     "profit_calculator": profit_calculator.render,
@@ -40,8 +46,17 @@ ROUTES = {
 }
 
 
-def render_route(route: str) -> None:
-    page = ROUTES.get(route)
+def render_route(
+    route: str,
+) -> None:
+    """Render the page associated with the selected route.
+
+    When the route is unknown, Filtrify falls back to the dashboard.
+    """
+
+    page = ROUTES.get(
+        route
+    )
 
     if page is None:
         dashboard.render()

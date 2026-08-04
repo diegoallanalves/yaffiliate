@@ -10,9 +10,11 @@ class ContentTemplateService:
     """
     Provides the catalogue of AI Content Studio templates.
 
+    AI = Artificial Intelligence.
+
     Only templates with an implemented generator are enabled.
     New templates can be activated later without changing
-    the Streamlit interface.
+    the Streamlit user interface.
     """
 
     def __init__(self) -> None:
@@ -63,11 +65,46 @@ class ContentTemplateService:
                 template_id="landing_page",
                 name="Landing Page",
                 description=(
-                    "Generate high-converting landing page copy."
+                    "Generate persuasive, high-converting "
+                    "landing page copy for an affiliate product."
                 ),
                 icon="🌐",
                 generator_key="landing_page",
-                enabled=False,
+                fields=[
+                    ContentTemplateField(
+                        name="target_audience",
+                        label="Target audience",
+                        required=True,
+                        placeholder=(
+                            "Small business owners who want "
+                            "to improve their marketing"
+                        ),
+                    ),
+                    ContentTemplateField(
+                        name="primary_goal",
+                        label="Primary goal",
+                        required=True,
+                        placeholder=(
+                            "Encourage visitors to purchase "
+                            "the product"
+                        ),
+                    ),
+                    ContentTemplateField(
+                        name="tone",
+                        label="Writing tone",
+                        field_type="select",
+                        default_value="Persuasive",
+                        options=[
+                            "Professional",
+                            "Friendly",
+                            "Persuasive",
+                            "Educational",
+                            "Luxury",
+                            "Technical",
+                        ],
+                    ),
+                ],
+                enabled=True,
             ),
             ContentTemplate(
                 template_id="email_sequence",
@@ -167,7 +204,8 @@ class ContentTemplateService:
         self,
     ) -> list[ContentTemplate]:
         """
-        Return every registered template, including disabled ones.
+        Return every registered template,
+        including disabled templates.
         """
         return list(
             self._templates
@@ -178,7 +216,7 @@ class ContentTemplateService:
         template_id: str,
     ) -> ContentTemplate | None:
         """
-        Return one template by its unique identifier.
+        Return one template using its unique identifier.
         """
         cleaned_template_id = (
             template_id.strip().casefold()
@@ -198,7 +236,7 @@ class ContentTemplateService:
         template_id: str,
     ) -> ContentTemplate | None:
         """
-        Return the template only when it is enabled.
+        Return a template only when it is enabled.
         """
         template = self.get_template(
             template_id

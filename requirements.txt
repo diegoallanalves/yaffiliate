@@ -6,3 +6,4 @@ openai>=1.50,<3
 pytest>=8,<9
 pyodbc
 sqlalchemy
+openai

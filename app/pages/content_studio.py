@@ -5,6 +5,12 @@ from typing import Any
 import streamlit as st
 
 from app.collectors.hotmart_collector import HotmartCollector
+from app.components.content_studio.editor_helpers import (
+    clear_editor_state,
+)
+from app.components.content_studio.editor_registry import (
+    ContentEditorRegistry,
+)
 from app.components.layout import page_header
 from app.services.comparison_service import ComparisonService
 from app.services.content_generator_registry import (
@@ -23,9 +29,15 @@ comparison_service = ComparisonService()
 analysis_service = ProductAnalysisService()
 template_service = ContentTemplateService()
 generator_registry = ContentGeneratorRegistry()
+editor_registry = ContentEditorRegistry()
 
 
 def render() -> None:
+    """
+    Render the Filtrify AI Content Studio page.
+
+    AI = Artificial Intelligence.
+    """
     page_header(
         "AI Content Studio",
         "Generate structured content from product intelligence.",
@@ -59,7 +71,9 @@ def render() -> None:
         format_func=lambda index: product_options[index],
     )
 
-    selected_product = products[selected_product_index]
+    selected_product = products[
+        selected_product_index
+    ]
 
     default_keyword = (
         selected_product.product_name
@@ -125,7 +139,8 @@ def render() -> None:
             selected_template.generator_key
         ):
             st.error(
-                "The selected content generator is not available yet."
+                "The selected content generator "
+                "is not available yet."
             )
             return
 
@@ -151,11 +166,15 @@ def render() -> None:
                 comparison=selected_comparison,
             )
 
-            generated_content = generator_registry.generate(
-                generator_key=selected_template.generator_key,
-                product=selected_product,
-                analysis=analysis,
-                field_values=field_values,
+            generated_content = (
+                generator_registry.generate(
+                    generator_key=(
+                        selected_template.generator_key
+                    ),
+                    product=selected_product,
+                    analysis=analysis,
+                    field_values=field_values,
+                )
             )
 
         except Exception as exc:
@@ -180,7 +199,9 @@ def render() -> None:
 
         st.session_state[
             "generated_content_field_values"
-        ] = dict(field_values)
+        ] = dict(
+            field_values
+        )
 
         st.rerun()
 
@@ -200,20 +221,30 @@ def render() -> None:
 
     if generated_content is None:
         st.info(
-            "Choose a product and generate content to open the editor."
+            "Choose a product and generate content "
+            "to open the editor."
         )
         return
 
-    if generated_template_id == "seo_article":
-        render_seo_article_editor(
-            article=generated_content,
+    if not editor_registry.is_available(
+        generated_template_id
+    ):
+        st.warning(
+            "An editor has not yet been configured "
+            "for this content type."
+        )
+        return
+
+    try:
+        editor_registry.render(
+            template_id=generated_template_id,
+            generated_content=generated_content,
             generated_product=generated_product,
         )
 
-    else:
-        st.warning(
-            "An editor has not yet been configured for this "
-            "content type."
+    except Exception as exc:
+        st.error(
+            f"Unable to open the content editor: {exc}"
         )
 
 
@@ -222,11 +253,18 @@ def render_template_fields(
     selected_template: Any,
     default_keyword: str,
 ) -> dict[str, Any]:
+    """
+    Render the dynamic form fields defined by a template.
+
+    Dynamic:
+    Created automatically from configuration rather than
+    being manually hardcoded for each content type.
+    """
     field_values: dict[str, Any] = {}
 
     for field in selected_template.fields:
         field_key = (
-            f"content_template_"
+            "content_template_"
             f"{selected_template.template_id}_"
             f"{field.name}"
         )
@@ -237,6 +275,7 @@ def render_template_fields(
                     field.default_value
                     or default_keyword
                 )
+
             else:
                 default_value = (
                     field.default_value
@@ -264,7 +303,9 @@ def render_template_fields(
             )
 
         elif field.field_type == "select":
-            options = list(field.options)
+            options = list(
+                field.options
+            )
 
             if not options:
                 field_values[field.name] = None
@@ -290,7 +331,8 @@ def render_template_fields(
 
         else:
             st.warning(
-                f"Unsupported field type: {field.field_type}"
+                "Unsupported field type: "
+                f"{field.field_type}"
             )
 
     return field_values
@@ -301,6 +343,9 @@ def validate_required_fields(
     selected_template: Any,
     field_values: dict[str, Any],
 ) -> list[str]:
+    """
+    Return the labels of required fields without a value.
+    """
     missing_fields: list[str] = []
 
     for field in selected_template.fields:
@@ -326,298 +371,3 @@ def validate_required_fields(
             )
 
     return missing_fields
-
-
-def render_seo_article_editor(
-    *,
-    article: Any,
-    generated_product: str,
-) -> None:
-    st.divider()
-
-    st.subheader(
-        f"Article editor — {generated_product}"
-    )
-
-    metric_col1, metric_col2, metric_col3 = st.columns(3)
-
-    metric_col1.metric(
-        "SEO score",
-        f"{article.seo_score:.1f}/100",
-    )
-
-    metric_col2.metric(
-        "Estimated words",
-        f"{article.estimated_word_count:,}",
-    )
-
-    metric_col3.metric(
-        "Target keyword",
-        article.target_keyword,
-    )
-
-    edited_title = st.text_input(
-        "Title",
-        value=article.title,
-        key="seo_article_title",
-    )
-
-    edited_meta_description = st.text_area(
-        "Meta description",
-        value=article.meta_description,
-        height=100,
-        key="seo_article_meta_description",
-    )
-
-    meta_length = len(
-        edited_meta_description.strip()
-    )
-
-    st.caption(
-        f"Meta-description length: "
-        f"{meta_length} characters"
-    )
-
-    if meta_length < 120:
-        st.warning(
-            "The meta description is shorter than the "
-            "recommended range of 120–165 characters."
-        )
-
-    elif meta_length > 165:
-        st.warning(
-            "The meta description is longer than the "
-            "recommended range of 120–165 characters."
-        )
-
-    edited_introduction = st.text_area(
-        "Introduction",
-        value=article.introduction,
-        height=180,
-        key="seo_article_introduction",
-    )
-
-    edited_sections: list[dict[str, str]] = []
-
-    st.markdown("### Article sections")
-
-    for index, section in enumerate(
-        article.sections,
-        start=1,
-    ):
-        with st.expander(
-            f"Section {index}: {section.heading}",
-            expanded=index == 1,
-        ):
-            edited_heading = st.text_input(
-                "Heading",
-                value=section.heading,
-                key=f"seo_section_heading_{index}",
-            )
-
-            edited_content = st.text_area(
-                "Content",
-                value=section.content,
-                height=180,
-                key=f"seo_section_content_{index}",
-            )
-
-            edited_sections.append(
-                {
-                    "heading": edited_heading,
-                    "content": edited_content,
-                }
-            )
-
-    edited_conclusion = st.text_area(
-        "Conclusion",
-        value=article.conclusion,
-        height=160,
-        key="seo_article_conclusion",
-    )
-
-    edited_call_to_action = st.text_area(
-        "Call to action",
-        value=article.call_to_action,
-        height=120,
-        key="seo_article_call_to_action",
-    )
-
-    edited_article_text = build_editable_article_text(
-        title=edited_title,
-        meta_description=edited_meta_description,
-        introduction=edited_introduction,
-        sections=edited_sections,
-        conclusion=edited_conclusion,
-        call_to_action=edited_call_to_action,
-    )
-
-    edited_word_count = len(
-        edited_article_text.split()
-    )
-
-    st.caption(
-        f"Current edited word count: "
-        f"{edited_word_count:,}"
-    )
-
-    st.divider()
-
-    action_col1, action_col2 = st.columns(2)
-
-    with action_col1:
-        st.download_button(
-            label="Download edited article as TXT",
-            data=edited_article_text,
-            file_name=(
-                "filtrify_"
-                f"{slugify(article.target_keyword)}"
-                "_article.txt"
-            ),
-            mime="text/plain",
-            width="stretch",
-        )
-
-    with action_col2:
-        save_edits = st.button(
-            "Save edits in session",
-            width="stretch",
-        )
-
-    if save_edits:
-        st.session_state[
-            "edited_seo_article"
-        ] = {
-            "title": edited_title,
-            "meta_description": edited_meta_description,
-            "introduction": edited_introduction,
-            "sections": edited_sections,
-            "conclusion": edited_conclusion,
-            "call_to_action": edited_call_to_action,
-            "article_text": edited_article_text,
-            "word_count": edited_word_count,
-        }
-
-        st.success(
-            "Article edits were saved in this session."
-        )
-
-    saved_article = st.session_state.get(
-        "edited_seo_article"
-    )
-
-    if saved_article:
-        st.info(
-            "A saved edited version is available in this "
-            "session. Current saved word count: "
-            f'{saved_article["word_count"]:,}.'
-        )
-
-
-def build_editable_article_text(
-    *,
-    title: str,
-    meta_description: str,
-    introduction: str,
-    sections: list[dict[str, str]],
-    conclusion: str,
-    call_to_action: str,
-) -> str:
-    parts = [
-        title.strip(),
-        "",
-        f"Meta description: "
-        f"{meta_description.strip()}",
-        "",
-        introduction.strip(),
-        "",
-    ]
-
-    for section in sections:
-        heading = section["heading"].strip()
-        content = section["content"].strip()
-
-        if not heading and not content:
-            continue
-
-        parts.extend(
-            [
-                heading,
-                "",
-                content,
-                "",
-            ]
-        )
-
-    parts.extend(
-        [
-            "Conclusion",
-            "",
-            conclusion.strip(),
-            "",
-            "Call to action",
-            "",
-            call_to_action.strip(),
-        ]
-    )
-
-    return "\n".join(parts).strip()
-
-
-def clear_editor_state() -> None:
-    editor_keys = [
-        "seo_article_title",
-        "seo_article_meta_description",
-        "seo_article_introduction",
-        "seo_article_conclusion",
-        "seo_article_call_to_action",
-        "edited_seo_article",
-    ]
-
-    editor_keys.extend(
-        [
-            key
-            for key in list(
-                st.session_state.keys()
-            )
-            if (
-                key.startswith(
-                    "seo_section_heading_"
-                )
-                or key.startswith(
-                    "seo_section_content_"
-                )
-            )
-        ]
-    )
-
-    for key in editor_keys:
-        st.session_state.pop(
-            key,
-            None,
-        )
-
-
-def slugify(
-    value: str,
-) -> str:
-    cleaned_value = (
-        value.strip()
-        .lower()
-        .replace(" ", "_")
-        .replace("/", "_")
-        .replace("\\", "_")
-    )
-
-    allowed_characters = set(
-        "abcdefghijklmnopqrstuvwxyz"
-        "0123456789_-"
-    )
-
-    slug = "".join(
-        character
-        for character in cleaned_value
-        if character in allowed_characters
-    )
-
-    return slug or "seo_article"

@@ -7,3 +7,13 @@ __pycache__/
 .idea/
 outputs/landing_pages/*.html
 !outputs/landing_pages/.gitkeep
+
+# Generated files
+outputs/
+*.docx
+
+# Local environments and secrets
+venv/
+myenv/
+.env.*
+!.env.example
