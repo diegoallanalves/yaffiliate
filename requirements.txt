@@ -8,3 +8,4 @@ pyodbc
 sqlalchemy
 openai
 python-docx
+reportlab
