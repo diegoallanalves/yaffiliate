@@ -1,11 +1,4 @@
-"""Quick Generate page for YAffiliate.
-
-This page offers the fastest path from a product idea to a complete
-affiliate-marketing campaign ZIP.
-
-The first version searches products by name or keyword. Direct Hotmart URL
-import can be added later after the product-link parser is implemented.
-"""
+"""Quick Generate page for YAffiliate."""
 
 from __future__ import annotations
 
@@ -15,6 +8,7 @@ import streamlit as st
 
 from app.collectors.hotmart_collector import HotmartCollector
 from app.components.layout import page_header
+from app.models.discovery_product import DiscoveryProduct
 from app.services.campaign_generator_service import (
     CampaignGeneratorService,
     CampaignPackage,
@@ -35,8 +29,8 @@ def render() -> None:
     """Render the simple YAffiliate marketing-kit generator."""
 
     page_header(
-        "AI Marketing Kit",
-        "Create a complete affiliate campaign from one product.",
+        "START HERE",
+        "From One Product to a Complete Marketing Campaign in Minutes.",
         (
             "Search for a product, generate the campaign, "
             "and download the complete ZIP package."
@@ -44,26 +38,31 @@ def render() -> None:
     )
 
     st.info(
-        "For this first version, enter a product name or keyword. "
-        "Direct Hotmart-link import will be added later."
+        "Search any product and YAffiliate will create a complete "
+        "marketing campaign in minutes."
     )
 
     product_query = st.text_input(
-        "Product name or keyword",
-        value="Excel",
-        placeholder="Example: Excel, English, AI, Finance",
+        "What product do you want to promote?",
+        value="",
+        placeholder=(
+            "Examples: Excel Masterclass, English Course, "
+            "Weight Loss, Bitcoin Trading"
+        ),
         key="quick_generate_product_query",
     )
 
     generate = st.button(
-        "🚀 Create My Marketing Kit",
+        "🚀 Generate My Campaign",
         type="primary",
         width="stretch",
         key="quick_generate_button",
     )
 
     if generate:
-        if not product_query.strip():
+        cleaned_query = product_query.strip()
+
+        if not cleaned_query:
             st.error("Enter a product name or keyword.")
             return
 
@@ -72,26 +71,30 @@ def render() -> None:
                 "Finding the product and creating your marketing kit..."
             ):
                 products = collector.search_products(
-                    keyword=product_query.strip(),
+                    keyword=cleaned_query,
                     country_code="BR",
                     language_code="pt-BR",
                     limit=10,
                 )
 
-                if not products:
-                    st.warning(
-                        "No products were found. Try another keyword."
-                    )
-                    return
+                used_custom_product = not products
 
-                selected_product = products[0]
+                if used_custom_product:
+                    selected_product = _build_custom_product(cleaned_query)
+                    products = [selected_product]
+                else:
+                    selected_product = products[0]
+
                 comparison = comparison_service.compare(products)
 
                 selected_comparison = next(
                     (
                         item
                         for item in comparison.products
-                        if item.product.product_name == selected_product.product_name
+                        if (
+                            item.product.product_name
+                            == selected_product.product_name
+                        )
                     ),
                     None,
                 )
@@ -104,7 +107,7 @@ def render() -> None:
                 campaign = campaign_service.generate(
                     product=selected_product,
                     analysis=analysis,
-                    target_keyword=product_query.strip(),
+                    target_keyword=cleaned_query,
                     target_audience=(
                         "People interested in this product who want "
                         "a clear solution to their problem"
@@ -122,6 +125,10 @@ def render() -> None:
 
             st.session_state["quick_generated_campaign"] = campaign
             st.session_state["quick_generated_zip"] = campaign_zip
+            st.session_state[
+                "quick_generated_custom_product"
+            ] = used_custom_product
+
             st.success("Your marketing kit is ready.")
 
         except Exception as error:
@@ -133,12 +140,48 @@ def render() -> None:
 
     campaign = st.session_state.get("quick_generated_campaign")
     campaign_zip = st.session_state.get("quick_generated_zip")
+    used_custom_product = bool(
+        st.session_state.get("quick_generated_custom_product")
+    )
 
     if not isinstance(campaign, CampaignPackage):
         _render_deliverables()
         return
 
-    _render_result(campaign=campaign, campaign_zip=campaign_zip)
+    _render_result(
+        campaign=campaign,
+        campaign_zip=campaign_zip,
+        used_custom_product=used_custom_product,
+    )
+
+
+def _build_custom_product(product_name: str) -> DiscoveryProduct:
+    """Create a temporary test product with placeholder values."""
+
+    return DiscoveryProduct(
+        product_name=product_name,
+        network_name="Custom Product",
+        category="General",
+        country_code="BR",
+        language_code="pt-BR",
+        price=197.00,
+        commission_amount=80.00,
+        commission_percent=40.00,
+        epc=1.00,
+        gravity_score=20.00,
+        search_volume=1000,
+        competition_score=50.00,
+        estimated_cpc=1.50,
+        google_trend_score=50.00,
+        refund_rate=5.00,
+        opportunity_score=50.00,
+        sales_page_url=None,
+        affiliate_url=None,
+        description=(
+            f"Custom affiliate product named {product_name}. "
+            "Commercial and market values are placeholders for testing."
+        ),
+    )
 
 
 def _render_deliverables() -> None:
@@ -164,11 +207,19 @@ def _render_result(
     *,
     campaign: CampaignPackage,
     campaign_zip: bytes | None,
+    used_custom_product: bool,
 ) -> None:
     """Render the generated campaign summary and download button."""
 
     st.divider()
     st.subheader("Marketing Kit Ready")
+
+    if used_custom_product:
+        st.warning(
+            "This campaign used estimated placeholder product data because "
+            "the product was not found in the local catalogue. Review and "
+            "replace the commercial figures before using it for a customer."
+        )
 
     st.write(f"**Product:** {campaign.product_name}")
     st.write(f"**Campaign:** {campaign.campaign_name}")
@@ -224,6 +275,10 @@ def _safe_file_name(value: str) -> str:
         value.strip(),
     )
 
-    cleaned_value = re.sub(r"_+", "_", cleaned_value).strip("_")
+    cleaned_value = re.sub(
+        r"_+",
+        "_",
+        cleaned_value,
+    ).strip("_")
 
     return cleaned_value or "yaffiliate_marketing_kit"

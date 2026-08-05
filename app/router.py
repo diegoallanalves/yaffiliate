@@ -18,6 +18,7 @@ from app.pages import (
     product_intelligence,
     product_research,
     profit_calculator,
+    quick_generate,
     seo,
     settings,
 )
@@ -31,6 +32,9 @@ ROUTES = {
     "product_research": product_research.render,
     "product_discovery": product_discovery.render,
     "content_studio": content_studio.render,
+
+    "quick_generate": quick_generate.render,
+
     "campaign_generator": campaign_generator.render,
     "campaign_history": campaign_history.render,
     "keyword_research": keyword_research.render,
