@@ -7,3 +7,4 @@ pytest>=8,<9
 pyodbc
 sqlalchemy
 openai
+python-docx
