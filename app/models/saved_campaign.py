@@ -1,4 +1,4 @@
-"""Saved campaign metadata used by Filtrify Campaign History.
+"""Saved campaign metadata used by YAffiliate Campaign History.
 
 This model stores the information required to list, identify, and reopen a
 previously generated campaign.
@@ -12,45 +12,7 @@ from datetime import datetime, timezone
 
 @dataclass(frozen=True, slots=True)
 class SavedCampaign:
-    """Represent one campaign stored in Filtrify history.
-
-    Attributes:
-        campaign_id:
-            Unique identifier for the saved campaign.
-
-        campaign_name:
-            Human-readable campaign name.
-
-        product_name:
-            Product used to generate the campaign.
-
-        target_keyword:
-            Main campaign keyword.
-
-        target_audience:
-            Intended campaign audience.
-
-        tone:
-            Shared writing tone.
-
-        asset_count:
-            Number of generated campaign assets.
-
-        total_estimated_words:
-            Combined estimated word count.
-
-        average_quality_score:
-            Average quality score for scored assets.
-
-        created_at:
-            Time when the campaign was originally generated.
-
-        saved_at:
-            Time when the campaign was stored in history.
-
-        data_file:
-            Path of the JSON file containing the complete campaign data.
-    """
+    """Represent one campaign stored in YAffiliate history."""
 
     campaign_id: str
     campaign_name: str
@@ -79,15 +41,9 @@ class SavedCampaign:
         )
 
         for field_name in text_fields:
-            field_value = getattr(
-                self,
-                field_name,
-            )
+            field_value = getattr(self, field_name)
 
-            if not isinstance(
-                field_value,
-                str,
-            ):
+            if not isinstance(field_value, str):
                 raise TypeError(
                     f"SavedCampaign.{field_name} must be a string."
                 )
@@ -123,17 +79,13 @@ class SavedCampaign:
         object.__setattr__(
             self,
             "created_at",
-            self._ensure_timezone(
-                self.created_at
-            ),
+            self._ensure_timezone(self.created_at),
         )
 
         object.__setattr__(
             self,
             "saved_at",
-            self._ensure_timezone(
-                self.saved_at
-            ),
+            self._ensure_timezone(self.saved_at),
         )
 
     @property
@@ -157,7 +109,7 @@ class SavedCampaign:
         )
 
     def to_dictionary(self) -> dict[str, object]:
-        """Convert the saved campaign metadata into a dictionary."""
+        """Convert saved campaign metadata into a dictionary."""
 
         return {
             "campaign_id": self.campaign_id,
@@ -182,65 +134,30 @@ class SavedCampaign:
         """Create saved campaign metadata from a dictionary."""
 
         return cls(
-            campaign_id=str(
-                data["campaign_id"]
-            ),
-            campaign_name=str(
-                data["campaign_name"]
-            ),
-            product_name=str(
-                data["product_name"]
-            ),
-            target_keyword=str(
-                data["target_keyword"]
-            ),
-            target_audience=str(
-                data["target_audience"]
-            ),
-            tone=str(
-                data["tone"]
-            ),
-            asset_count=int(
-                data["asset_count"]
-            ),
-            total_estimated_words=int(
-                data["total_estimated_words"]
-            ),
-            average_quality_score=float(
-                data["average_quality_score"]
-            ),
-            created_at=datetime.fromisoformat(
-                str(
-                    data["created_at"]
-                )
-            ),
-            saved_at=datetime.fromisoformat(
-                str(
-                    data["saved_at"]
-                )
-            ),
-            data_file=str(
-                data["data_file"]
-            ),
+            campaign_id=str(data["campaign_id"]),
+            campaign_name=str(data["campaign_name"]),
+            product_name=str(data["product_name"]),
+            target_keyword=str(data["target_keyword"]),
+            target_audience=str(data["target_audience"]),
+            tone=str(data["tone"]),
+            asset_count=int(data["asset_count"]),
+            total_estimated_words=int(data["total_estimated_words"]),
+            average_quality_score=float(data["average_quality_score"]),
+            created_at=datetime.fromisoformat(str(data["created_at"])),
+            saved_at=datetime.fromisoformat(str(data["saved_at"])),
+            data_file=str(data["data_file"]),
         )
 
     @staticmethod
-    def _ensure_timezone(
-        value: datetime,
-    ) -> datetime:
+    def _ensure_timezone(value: datetime) -> datetime:
         """Return a timezone-aware datetime value."""
 
-        if not isinstance(
-            value,
-            datetime,
-        ):
+        if not isinstance(value, datetime):
             raise TypeError(
                 "Campaign date values must be datetime instances."
             )
 
         if value.tzinfo is None:
-            return value.replace(
-                tzinfo=timezone.utc
-            )
+            return value.replace(tzinfo=timezone.utc)
 
         return value
