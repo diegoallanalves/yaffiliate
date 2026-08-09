@@ -7,42 +7,44 @@ import streamlit as st
 
 NAV = {
     "🚀 Quick Generate": "quick_generate",
-
     "🏠 Dashboard": "dashboard",
     "🎯 Mission Center": "mission_center",
-
     "🧠 Product Intelligence": "product_intelligence",
     "📊 Portfolio Intelligence": "portfolio_intelligence",
-
     "📈 Product Research": "product_research",
     "⭐ Product Discovery": "product_discovery",
-
     "✍️ AI Content Studio": "content_studio",
-
     "🚀 Campaign Generator": "campaign_generator",
     "🕘 Campaign History": "campaign_history",
-
     "🔍 Keyword Research": "keyword_research",
-
     "🤖 AI Assistant": "ai_assistant",
-
     "💰 Profit Calculator": "profit_calculator",
-
     "📊 Analytics": "analytics",
-
     "🌐 Landing Pages": "landing_pages",
     "📧 Email Marketing": "email_marketing",
     "📰 SEO": "seo",
     "🎯 Google Ads": "google_ads",
-
     "🛒 Affiliate Products": "affiliate_products",
-
     "⚙️ Settings": "settings",
 }
 
 
 def sidebar_navigation() -> str:
-    """Render the Filtrify sidebar and return the selected route key."""
+    """Render the sidebar and return the selected route."""
+
+    default_route = st.session_state.get(
+        "selected_route",
+        "quick_generate",
+    )
+
+    labels = list(NAV.keys())
+    routes = list(NAV.values())
+
+    default_index = (
+        routes.index(default_route)
+        if default_route in routes
+        else 0
+    )
 
     with st.sidebar:
         st.markdown(
@@ -55,7 +57,8 @@ def sidebar_navigation() -> str:
 
         selected_label = st.radio(
             "Navigation",
-            options=list(NAV.keys()),
+            options=labels,
+            index=default_index,
             label_visibility="collapsed",
         )
 
@@ -65,7 +68,10 @@ def sidebar_navigation() -> str:
             "YAffiliate Beta · Build your marketing kit in minutes"
         )
 
-    return NAV[selected_label]
+    selected_route = NAV[selected_label]
+    st.session_state["selected_route"] = selected_route
+
+    return selected_route
 
 
 def page_header(
@@ -73,7 +79,7 @@ def page_header(
     title: str,
     subtitle: str,
 ) -> None:
-    """Render the shared Filtrify page header."""
+    """Render the shared page header."""
 
     st.markdown(
         f"""
