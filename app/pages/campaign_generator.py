@@ -6,12 +6,14 @@ import re
 import streamlit as st
 
 from app.collectors.hotmart_collector import HotmartCollector
-from app.components.layout import page_header
+from app.components.layout import navigate_to, page_header
 from app.models.email_sequence import EmailSequence
 from app.models.google_ads_campaign import GoogleAdsAsset
 from app.models.landing_page import LandingPage
 from app.models.seo_article import SEOArticle
+from app.repositories.campaign_repository import CampaignRepository
 from app.services.campaign_export_service import CampaignExportService
+from app.services.campaign_codec_service import campaign_from_dict
 from app.services.campaign_generator_service import (
     CampaignGeneratorService,
     CampaignPackage,
@@ -26,6 +28,7 @@ comparison_service = ComparisonService()
 analysis_service = ProductAnalysisService()
 campaign_service = CampaignGeneratorService()
 campaign_export_service = CampaignExportService()
+campaign_repository = CampaignRepository()
 zip_exporter = ZipExporter()
 
 
@@ -33,6 +36,15 @@ def render() -> None:
     """Render the YAffiliate Campaign Generator page."""
 
     loaded_campaign = st.session_state.get("loaded_campaign")
+
+    if isinstance(loaded_campaign, dict) and not isinstance(
+        st.session_state.get("generated_campaign"), CampaignPackage
+    ):
+        try:
+            st.session_state["generated_campaign"] = campaign_from_dict(loaded_campaign)
+        except Exception as error:
+            st.warning("The saved campaign settings were loaded, but its assets could not be reconstructed.")
+            st.caption(str(error))
 
     loaded_product_name = ""
     loaded_target_keyword = ""
@@ -57,7 +69,14 @@ def render() -> None:
             loaded_campaign.get("tone", "Professional")
         ).strip() or "Professional"
 
-        st.success("Saved campaign loaded. Review the settings below.")
+        st.success("Saved campaign loaded from Campaign History.")
+
+        if st.button(
+            "← Back to Campaign History",
+            key="back_to_campaign_history",
+        ):
+            navigate_to("campaign_history")
+            st.rerun()
 
         if st.button(
             "Clear loaded campaign",
@@ -66,6 +85,7 @@ def render() -> None:
         ):
             st.session_state.pop("loaded_campaign", None)
             st.session_state.pop("loaded_campaign_id", None)
+            st.session_state.pop("generated_campaign", None)
             st.rerun()
 
     page_header(
@@ -261,8 +281,32 @@ def render() -> None:
                     campaign_name=campaign_name.strip(),
                 )
 
+            campaign_json = campaign_export_service.to_json(
+                campaign
+            )
+
+            saved_response = campaign_repository.save_campaign(
+                user_id="beta-test-user",
+                product_name=campaign.product_name,
+                campaign=campaign_json,
+            )
+
+            saved_campaign_id = (
+                saved_response.data[0]["id"]
+                if getattr(saved_response, "data", None)
+                else None
+            )
+
             st.session_state["generated_campaign"] = campaign
-            st.success("Campaign generated successfully.")
+            st.session_state["generated_campaign_id"] = saved_campaign_id
+
+            # A newly generated campaign is a new working copy.
+            st.session_state.pop("loaded_campaign", None)
+            st.session_state.pop("loaded_campaign_id", None)
+
+            st.success(
+                "Campaign generated and saved to Campaign History."
+            )
             st.rerun()
 
         except Exception as error:
@@ -287,6 +331,15 @@ def _render_campaign_summary(campaign: CampaignPackage) -> None:
     st.divider()
     st.subheader(campaign.campaign_name)
     st.caption(f"Product: {campaign.product_name}")
+
+    saved_campaign_id = st.session_state.get(
+        "generated_campaign_id"
+    )
+
+    if saved_campaign_id:
+        st.caption(
+            f"Saved Campaign ID: {saved_campaign_id}"
+        )
 
     m1, m2, m3 = st.columns(3)
     m1.metric("Campaign assets", campaign.asset_count)

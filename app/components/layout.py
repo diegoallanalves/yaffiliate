@@ -1,4 +1,4 @@
-"""Shared Filtrify navigation and page-header components."""
+"""Shared YAffiliate navigation and page-header components."""
 
 from __future__ import annotations
 
@@ -28,23 +28,51 @@ NAV = {
     "⚙️ Settings": "settings",
 }
 
+ROUTE_TO_LABEL = {
+    route: label
+    for label, route in NAV.items()
+}
+
+NAV_WIDGET_KEY = "yaffiliate_navigation"
+PENDING_ROUTE_KEY = "_pending_route"
+
+
+def navigate_to(route: str) -> None:
+    """Navigate to another YAffiliate page on the next rerun."""
+
+    if route not in ROUTE_TO_LABEL:
+        raise ValueError(
+            f"Unknown YAffiliate route: {route}"
+        )
+
+    st.session_state[PENDING_ROUTE_KEY] = route
+    st.rerun()
+
 
 def sidebar_navigation() -> str:
     """Render the sidebar and return the selected route."""
 
-    default_route = st.session_state.get(
-        "selected_route",
-        "quick_generate",
+    pending_route = st.session_state.pop(
+        PENDING_ROUTE_KEY,
+        None,
     )
 
-    labels = list(NAV.keys())
-    routes = list(NAV.values())
+    if pending_route is not None:
+        if pending_route not in ROUTE_TO_LABEL:
+            raise ValueError(
+                f"Unknown YAffiliate route: {pending_route}"
+            )
 
-    default_index = (
-        routes.index(default_route)
-        if default_route in routes
-        else 0
-    )
+        # Important:
+        # Set the radio widget value BEFORE creating the widget.
+        st.session_state[NAV_WIDGET_KEY] = (
+            ROUTE_TO_LABEL[pending_route]
+        )
+
+    if NAV_WIDGET_KEY not in st.session_state:
+        st.session_state[NAV_WIDGET_KEY] = (
+            "🚀 Quick Generate"
+        )
 
     with st.sidebar:
         st.markdown(
@@ -57,8 +85,8 @@ def sidebar_navigation() -> str:
 
         selected_label = st.radio(
             "Navigation",
-            options=labels,
-            index=default_index,
+            options=list(NAV.keys()),
+            key=NAV_WIDGET_KEY,
             label_visibility="collapsed",
         )
 
@@ -69,7 +97,10 @@ def sidebar_navigation() -> str:
         )
 
     selected_route = NAV[selected_label]
-    st.session_state["selected_route"] = selected_route
+
+    st.session_state["selected_route"] = (
+        selected_route
+    )
 
     return selected_route
 
