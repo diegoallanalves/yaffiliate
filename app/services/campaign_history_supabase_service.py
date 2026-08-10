@@ -1,4 +1,4 @@
-"""Campaign History service using Supabase."""
+"""Campaign History service backed by Supabase."""
 
 from __future__ import annotations
 
@@ -8,68 +8,65 @@ from typing import Any
 from app.repositories.campaign_repository import CampaignRepository
 
 
+BETA_USER_ID = "beta-test-user"
+
+
 class CampaignHistorySupabaseService:
-    """Manage Campaign History stored in Supabase."""
+    """Manage the current user's campaign history."""
 
-    def __init__(self) -> None:
-        self.repository = CampaignRepository()
+    def __init__(
+        self,
+        *,
+        repository: CampaignRepository | None = None,
+        user_id: str = BETA_USER_ID,
+    ) -> None:
+        self.repository = repository or CampaignRepository()
+        self.user_id = user_id
 
-    def list_campaigns(self):
-        """Return all campaigns."""
-
-        response = (
-            self.repository.client
-            .table("campaigns")
-            .select("*")
-            .order("created_at", desc=True)
-            .execute()
-        )
-
-        return response.data
+    def list_campaigns(self) -> list[dict[str, Any]]:
+        return self.repository.list_campaigns(self.user_id)
 
     def load_campaign_data(
         self,
         campaign_id: str,
     ) -> dict[str, Any]:
-
-        response = (
-            self.repository.client
-            .table("campaigns")
-            .select("*")
-            .eq("id", campaign_id)
-            .single()
-            .execute()
+        row = self.repository.get_campaign(
+            campaign_id,
+            self.user_id,
         )
 
-        return json.loads(
-            response.data["campaign"]
-        )
+        if row is None:
+            raise ValueError("The selected campaign could not be found.")
+
+        campaign_value = row.get("campaign")
+
+        if isinstance(campaign_value, dict):
+            return campaign_value
+
+        if not isinstance(campaign_value, str):
+            raise ValueError("The saved campaign does not contain valid data.")
+
+        try:
+            loaded = json.loads(campaign_value)
+        except json.JSONDecodeError as error:
+            raise ValueError("The saved campaign contains invalid JSON.") from error
+
+        if not isinstance(loaded, dict):
+            raise ValueError("The saved campaign must contain a JSON object.")
+
+        return loaded
 
     def delete_campaign(
         self,
         campaign_id: str,
-    ) -> None:
-
-        (
-            self.repository.client
-            .table("campaigns")
-            .delete()
-            .eq("id", campaign_id)
-            .execute()
+    ) -> bool:
+        return self.repository.delete_campaign(
+            campaign_id,
+            self.user_id,
         )
 
-    def clear_history(self) -> None:
-
-        (
-            self.repository.client
-            .table("campaigns")
-            .delete()
-            .neq("id", "")
-            .execute()
-        )
+    def clear_history(self) -> int:
+        return self.repository.clear_campaigns(self.user_id)
 
     def count_campaigns(self) -> int:
-
-        return len(
-            self.list_campaigns()
-        )
+        return self.repository.count_campaigns(self.user_id)
