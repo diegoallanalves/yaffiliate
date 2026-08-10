@@ -6,6 +6,7 @@ import re
 import streamlit as st
 
 from app.collectors.hotmart_collector import HotmartCollector
+from app.config import BETA_USER_ID
 from app.components.layout import navigate_to, page_header
 from app.models.email_sequence import EmailSequence
 from app.models.google_ads_campaign import GoogleAdsAsset
@@ -286,7 +287,7 @@ def render() -> None:
             )
 
             saved_response = campaign_repository.save_campaign(
-                user_id="beta-test-user",
+                user_id=BETA_USER_ID,
                 product_name=campaign.product_name,
                 campaign=campaign_json,
             )

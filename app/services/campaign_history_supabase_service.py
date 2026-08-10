@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
+from app.config import BETA_USER_ID
 from app.repositories.campaign_repository import CampaignRepository
-
-
-BETA_USER_ID = "beta-test-user"
+from app.services.campaign_record_service import decode_campaign_payload
 
 
 class CampaignHistorySupabaseService:
@@ -38,23 +36,7 @@ class CampaignHistorySupabaseService:
         if row is None:
             raise ValueError("The selected campaign could not be found.")
 
-        campaign_value = row.get("campaign")
-
-        if isinstance(campaign_value, dict):
-            return campaign_value
-
-        if not isinstance(campaign_value, str):
-            raise ValueError("The saved campaign does not contain valid data.")
-
-        try:
-            loaded = json.loads(campaign_value)
-        except json.JSONDecodeError as error:
-            raise ValueError("The saved campaign contains invalid JSON.") from error
-
-        if not isinstance(loaded, dict):
-            raise ValueError("The saved campaign must contain a JSON object.")
-
-        return loaded
+        return decode_campaign_payload(row.get("campaign"))
 
     def delete_campaign(
         self,

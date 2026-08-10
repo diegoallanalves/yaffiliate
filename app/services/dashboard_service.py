@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
 
-from app.repositories.database import read_table
+from app.config import BETA_USER_ID
 from app.repositories.campaign_repository import CampaignRepository
+from app.repositories.database import read_table
+from app.services.campaign_record_service import campaign_display_name
 from app.services.scoring import add_opportunity_score
-
-
-BETA_USER_ID = "beta-test-user"
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,17 +73,5 @@ class DashboardService:
 
     @staticmethod
     def campaign_display_name(row: dict[str, Any]) -> str:
-        raw = row.get("campaign")
-
-        if isinstance(raw, str):
-            try:
-                raw = json.loads(raw)
-            except json.JSONDecodeError:
-                raw = {}
-
-        if isinstance(raw, dict):
-            name = str(raw.get("campaign_name") or "").strip()
-            if name:
-                return name
-
-        return str(row.get("product_name") or "Saved campaign")
+        """Return a readable saved-campaign name."""
+        return campaign_display_name(row)
