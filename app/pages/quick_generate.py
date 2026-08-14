@@ -9,7 +9,7 @@ from dataclasses import asdict
 import streamlit as st
 
 from app.collectors.hotmart_collector import HotmartCollector
-from app.config import BETA_USER_ID
+from app.services.auth_service import AuthService
 from app.components.layout import page_header
 from app.models.discovery_product import DiscoveryProduct
 from app.repositories.campaign_repository import CampaignRepository
@@ -132,8 +132,14 @@ def render() -> None:
                     ensure_ascii=False,
                 )
 
+                user_id = st.session_state.get("auth_user_id")
+
+                if not user_id:
+                    st.error("Your login session has expired. Please sign in again.")
+                    return
+
                 response = campaign_repository.save_campaign(
-                    user_id=BETA_USER_ID,
+                    user_id=user_id,
                     product_name=campaign.product_name,
                     campaign=campaign_data,
                 )

@@ -6,7 +6,7 @@ import re
 import streamlit as st
 
 from app.collectors.hotmart_collector import HotmartCollector
-from app.config import BETA_USER_ID
+from app.services.auth_service import AuthService
 from app.components.layout import navigate_to, page_header
 from app.models.email_sequence import EmailSequence
 from app.models.google_ads_campaign import GoogleAdsAsset
@@ -286,8 +286,14 @@ def render() -> None:
                 campaign
             )
 
+            user_id = AuthService().get_current_user_id()
+
+            if not user_id:
+                st.error("You must be signed in to save a campaign.")
+                return
+
             saved_response = campaign_repository.save_campaign(
-                user_id=BETA_USER_ID,
+                user_id=user_id,
                 product_name=campaign.product_name,
                 campaign=campaign_json,
             )
