@@ -13,7 +13,7 @@ class StripeService:
     """Provide Stripe payment operations for YAffiliate."""
 
     def __init__(self) -> None:
-        """Configure Stripe using environment variables."""
+        """Configure Stripe using the global multi-currency Price."""
 
         load_dotenv()
 
@@ -21,9 +21,7 @@ class StripeService:
         price_id = os.getenv("STRIPE_PRICE_ID", "").strip()
 
         if not secret_key:
-            raise ValueError(
-                "STRIPE_SECRET_KEY is not configured."
-            )
+            raise ValueError("STRIPE_SECRET_KEY is not configured.")
 
         if not secret_key.startswith("sk_test_"):
             raise ValueError(
@@ -31,9 +29,7 @@ class StripeService:
             )
 
         if not price_id:
-            raise ValueError(
-                "STRIPE_PRICE_ID is not configured."
-            )
+            raise ValueError("STRIPE_PRICE_ID is not configured.")
 
         if not price_id.startswith("price_"):
             raise ValueError(
@@ -41,17 +37,11 @@ class StripeService:
             )
 
         stripe.api_key = secret_key
-
         self.client = stripe
         self.price_id = price_id
 
     def test_connection(self) -> dict[str, Any]:
-        """
-        Verify that YAffiliate can communicate with Stripe.
-
-        This retrieves the Stripe account associated with the configured
-        test API key. It does not create customers, payments, or charges.
-        """
+        """Verify that YAffiliate can communicate with Stripe."""
 
         account = self.client.Account.retrieve()
 
@@ -62,24 +52,28 @@ class StripeService:
         }
 
     def get_price(self) -> dict[str, Any]:
-        """Retrieve the configured YAffiliate Pro Stripe price."""
+        """Retrieve the configured global YAffiliate Pro Price."""
 
         price = self.client.Price.retrieve(self.price_id)
 
         recurring = getattr(price, "recurring", None)
+        interval = getattr(recurring, "interval", None) if recurring else None
 
-        if recurring:
-            interval = getattr(recurring, "interval", None)
-        else:
-            interval = None
+        default_currency = str(
+            getattr(price, "currency", "") or ""
+        ).lower()
 
+        # Stripe's Python SDK does not consistently expose currency_options
+        # as a normal mapping on retrieved Price objects. The application's
+        # Checkout flow does not need to enumerate those options: Stripe uses
+        # the multi-currency Price itself when creating Checkout.
         return {
-            "id": price.id,
-            "active": price.active,
-            "currency": price.currency,
-            "unit_amount": price.unit_amount,
+            "id": getattr(price, "id", None),
+            "active": bool(getattr(price, "active", False)),
+            "default_currency": default_currency,
+            "unit_amount": getattr(price, "unit_amount", None),
             "interval": interval,
-            "product": price.product,
+            "product": getattr(price, "product", None),
         }
 
     def create_checkout_session(
@@ -93,14 +87,16 @@ class StripeService:
         """
         Create a Stripe Checkout Session for YAffiliate Pro.
 
-        The session is created in subscription mode using the configured
-        Stripe Price ID.
+        The configured Stripe Price contains the supported currency options.
+        YAffiliate does not expose a customer-facing currency selector and
+        does not force a currency in the Checkout Session.
 
-        No payment is charged merely by creating the session.
+        Creating Checkout does not activate Pro access. A completed Stripe
+        subscription must be verified before YAffiliate grants Pro.
         """
 
         user_id = user_id.strip()
-        email = email.strip()
+        email = email.strip().lower()
 
         if not user_id:
             raise ValueError(
@@ -121,7 +117,10 @@ class StripeService:
                     "quantity": 1,
                 }
             ],
-            success_url=success_url + "&session_id={CHECKOUT_SESSION_ID}",
+            success_url=(
+                success_url
+                + "&session_id={CHECKOUT_SESSION_ID}"
+            ),
             cancel_url=cancel_url,
             client_reference_id=user_id,
             metadata={
@@ -141,4 +140,19 @@ class StripeService:
             "id": session.id,
             "url": session.url,
             "status": getattr(session, "status", None),
+            "currency": getattr(session, "currency", None),
+            "customer": getattr(session, "customer", None),
         }
+
+    def retrieve_checkout_session(self, session_id: str) -> Any:
+        """Retrieve Checkout and expand its customer and subscription."""
+
+        session_id = session_id.strip()
+
+        if not session_id:
+            raise ValueError("Checkout Session ID is required.")
+
+        return self.client.checkout.Session.retrieve(
+            session_id,
+            expand=["subscription", "customer"],
+        )

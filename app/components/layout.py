@@ -5,33 +5,33 @@ from __future__ import annotations
 import streamlit as st
 
 
+# Free routes remain visible without a lock.
+# Paid routes are visibly marked Pro, while router.py independently
+# enforces access so navigation manipulation cannot bypass the paywall.
 NAV = {
     "🚀 Quick Generate": "quick_generate",
     "🏠 Dashboard": "dashboard",
     "🎯 Mission Center": "mission_center",
-    "🧠 Product Intelligence": "product_intelligence",
-    "📊 Portfolio Intelligence": "portfolio_intelligence",
-    "📈 Product Research": "product_research",
-    "⭐ Product Discovery": "product_discovery",
-    "✍️ AI Content Studio": "content_studio",
-    "🚀 Campaign Generator": "campaign_generator",
-    "🕘 Campaign History": "campaign_history",
-    "🔍 Keyword Research": "keyword_research",
-    "🤖 AI Assistant": "ai_assistant",
+    "🧠 Product Intelligence · PRO 🔒": "product_intelligence",
+    "📊 Portfolio Intelligence · PRO 🔒": "portfolio_intelligence",
+    "📈 Product Research · PRO 🔒": "product_research",
+    "⭐ Product Discovery · PRO 🔒": "product_discovery",
+    "✍️ AI Content Studio · PRO 🔒": "content_studio",
+    "🚀 Campaign Generator · PRO 🔒": "campaign_generator",
+    "🕘 Campaign History · PRO 🔒": "campaign_history",
+    "🔍 Keyword Research · PRO 🔒": "keyword_research",
+    "🤖 AI Assistant · PRO 🔒": "ai_assistant",
     "💰 Profit Calculator": "profit_calculator",
-    "📊 Analytics": "analytics",
-    "🌐 Landing Pages": "landing_pages",
-    "📧 Email Marketing": "email_marketing",
-    "📰 SEO": "seo",
-    "🎯 Google Ads": "google_ads",
-    "🛒 Affiliate Products": "affiliate_products",
+    "📊 Analytics · PRO 🔒": "analytics",
+    "🌐 Landing Pages · PRO 🔒": "landing_pages",
+    "📧 Email Marketing · PRO 🔒": "email_marketing",
+    "📰 SEO · PRO 🔒": "seo",
+    "🎯 Google Ads · PRO 🔒": "google_ads",
+    "🛒 Affiliate Products · PRO 🔒": "affiliate_products",
     "⚙️ Settings": "settings",
 }
 
-ROUTE_TO_LABEL = {
-    route: label
-    for label, route in NAV.items()
-}
+ROUTE_TO_LABEL = {route: label for label, route in NAV.items()}
 
 NAV_WIDGET_KEY = "yaffiliate_navigation"
 PENDING_ROUTE_KEY = "_pending_route"
@@ -41,9 +41,7 @@ def navigate_to(route: str) -> None:
     """Navigate to another YAffiliate page on the next rerun."""
 
     if route not in ROUTE_TO_LABEL:
-        raise ValueError(
-            f"Unknown YAffiliate route: {route}"
-        )
+        raise ValueError(f"Unknown YAffiliate route: {route}")
 
     st.session_state[PENDING_ROUTE_KEY] = route
     st.rerun()
@@ -52,10 +50,7 @@ def navigate_to(route: str) -> None:
 def sidebar_navigation() -> str:
     """Render the sidebar and return the selected route."""
 
-    pending_route = st.session_state.pop(
-        PENDING_ROUTE_KEY,
-        None,
-    )
+    pending_route = st.session_state.pop(PENDING_ROUTE_KEY, None)
 
     if pending_route is not None:
         if pending_route not in ROUTE_TO_LABEL:
@@ -63,16 +58,10 @@ def sidebar_navigation() -> str:
                 f"Unknown YAffiliate route: {pending_route}"
             )
 
-        # Important:
-        # Set the radio widget value BEFORE creating the widget.
-        st.session_state[NAV_WIDGET_KEY] = (
-            ROUTE_TO_LABEL[pending_route]
-        )
+        st.session_state[NAV_WIDGET_KEY] = ROUTE_TO_LABEL[pending_route]
 
     if NAV_WIDGET_KEY not in st.session_state:
-        st.session_state[NAV_WIDGET_KEY] = (
-            "🚀 Quick Generate"
-        )
+        st.session_state[NAV_WIDGET_KEY] = "🚀 Quick Generate"
 
     with st.sidebar:
         st.markdown(
@@ -91,16 +80,13 @@ def sidebar_navigation() -> str:
         )
 
         st.divider()
-
+        st.caption("🔒 PRO features require an active subscription.")
         st.caption(
             "YAffiliate Beta · Build your marketing kit in minutes"
         )
 
     selected_route = NAV[selected_label]
-
-    st.session_state["selected_route"] = (
-        selected_route
-    )
+    st.session_state["selected_route"] = selected_route
 
     return selected_route
 
