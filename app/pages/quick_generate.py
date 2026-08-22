@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import re
+from dataclasses import asdict
 
 import streamlit as st
 
 from app.collectors.hotmart_collector import HotmartCollector
+from app.services.auth_service import AuthService
 from app.components.layout import page_header
 from app.models.discovery_product import DiscoveryProduct
+from app.repositories.campaign_repository import CampaignRepository
 from app.services.campaign_generator_service import (
     CampaignGeneratorService,
     CampaignPackage,
@@ -22,11 +26,12 @@ collector = HotmartCollector()
 comparison_service = ComparisonService()
 analysis_service = ProductAnalysisService()
 campaign_service = CampaignGeneratorService()
+campaign_repository = CampaignRepository()
 zip_exporter = ZipExporter()
 
 
 def render() -> None:
-    """Render the simple YAffiliate marketing-kit generator."""
+    """Render the quick campaign generator."""
 
     page_header(
         "START HERE",
@@ -45,17 +50,13 @@ def render() -> None:
     product_query = st.text_input(
         "What product do you want to promote?",
         value="",
-        placeholder=(
-            "Examples: Excel Masterclass, English Course, "
-            "Weight Loss, Bitcoin Trading"
-        ),
+        placeholder="Examples: Excel Masterclass, English Course",
         key="quick_generate_product_query",
     )
 
     generate = st.button(
         "🚀 Generate My Campaign",
         type="primary",
-        width="stretch",
         key="quick_generate_button",
     )
 
@@ -63,13 +64,11 @@ def render() -> None:
         cleaned_query = product_query.strip()
 
         if not cleaned_query:
-            st.error("Enter a product name or keyword.")
+            st.error("Enter a product name.")
             return
 
         try:
-            with st.spinner(
-                "Finding the product and creating your marketing kit..."
-            ):
+            with st.spinner("Generating campaign..."):
                 products = collector.search_products(
                     keyword=cleaned_query,
                     country_code="BR",
@@ -80,7 +79,9 @@ def render() -> None:
                 used_custom_product = not products
 
                 if used_custom_product:
-                    selected_product = _build_custom_product(cleaned_query)
+                    selected_product = _build_custom_product(
+                        cleaned_query
+                    )
                     products = [selected_product]
                 else:
                     selected_product = products[0]
@@ -121,27 +122,59 @@ def render() -> None:
                     ),
                 )
 
-                campaign_zip = zip_exporter.campaign_to_bytes(campaign)
+                campaign_zip = zip_exporter.campaign_to_bytes(
+                    campaign
+                )
+
+                campaign_data = json.dumps(
+                    asdict(campaign),
+                    default=str,
+                    ensure_ascii=False,
+                )
+
+                user_id = st.session_state.get("auth_user_id")
+
+                if not user_id:
+                    st.error("Your login session has expired. Please sign in again.")
+                    return
+
+                response = campaign_repository.save_campaign(
+                    user_id=user_id,
+                    product_name=campaign.product_name,
+                    campaign=campaign_data,
+                )
+
+                campaign_id = (
+                    response.data[0]["id"]
+                    if getattr(response, "data", None)
+                    else None
+                )
 
             st.session_state["quick_generated_campaign"] = campaign
             st.session_state["quick_generated_zip"] = campaign_zip
             st.session_state[
                 "quick_generated_custom_product"
             ] = used_custom_product
+            st.session_state[
+                "quick_generated_campaign_id"
+            ] = campaign_id
 
-            st.success("Your marketing kit is ready.")
+            st.success("Marketing kit generated and saved.")
 
         except Exception as error:
-            st.error(
-                "The marketing kit could not be created. "
-                f"{error}"
-            )
+            st.exception(error)
             return
 
-    campaign = st.session_state.get("quick_generated_campaign")
-    campaign_zip = st.session_state.get("quick_generated_zip")
+    campaign = st.session_state.get(
+        "quick_generated_campaign"
+    )
+    campaign_zip = st.session_state.get(
+        "quick_generated_zip"
+    )
     used_custom_product = bool(
-        st.session_state.get("quick_generated_custom_product")
+        st.session_state.get(
+            "quick_generated_custom_product"
+        )
     )
 
     if not isinstance(campaign, CampaignPackage):
@@ -155,8 +188,10 @@ def render() -> None:
     )
 
 
-def _build_custom_product(product_name: str) -> DiscoveryProduct:
-    """Create a temporary test product with placeholder values."""
+def _build_custom_product(
+    product_name: str,
+) -> DiscoveryProduct:
+    """Create a temporary custom product for quick generation."""
 
     return DiscoveryProduct(
         product_name=product_name,
@@ -185,7 +220,7 @@ def _build_custom_product(product_name: str) -> DiscoveryProduct:
 
 
 def _render_deliverables() -> None:
-    """Show what the customer receives."""
+    """Show what the generated marketing kit includes."""
 
     st.divider()
     st.subheader("Your marketing kit will include")
@@ -209,16 +244,15 @@ def _render_result(
     campaign_zip: bytes | None,
     used_custom_product: bool,
 ) -> None:
-    """Render the generated campaign summary and download button."""
+    """Render the generated campaign result."""
 
     st.divider()
     st.subheader("Marketing Kit Ready")
 
     if used_custom_product:
         st.warning(
-            "This campaign used estimated placeholder product data because "
-            "the product was not found in the local catalogue. Review and "
-            "replace the commercial figures before using it for a customer."
+            "This campaign used estimated placeholder product data "
+            "because the product was not found in the catalogue."
         )
 
     st.write(f"**Product:** {campaign.product_name}")
@@ -226,7 +260,10 @@ def _render_result(
 
     metric_1, metric_2, metric_3 = st.columns(3)
 
-    metric_1.metric("Files ready", campaign.asset_count)
+    metric_1.metric(
+        "Files ready",
+        campaign.asset_count,
+    )
     metric_2.metric(
         "Marketing content",
         f"{campaign.total_estimated_words:,} words",
@@ -244,11 +281,24 @@ def _render_result(
     included_columns[2].success("Email Sequence")
     included_columns[3].success("Google Ads")
 
+    campaign_id = st.session_state.get(
+        "quick_generated_campaign_id"
+    )
+
+    if campaign_id:
+        st.caption(
+            f"Saved Campaign ID: {campaign_id}"
+        )
+
     if not isinstance(campaign_zip, bytes):
-        st.error("The ZIP file is not available. Generate the kit again.")
+        st.error(
+            "The ZIP file is not available. Generate the kit again."
+        )
         return
 
-    safe_name = _safe_file_name(campaign.campaign_name)
+    safe_name = _safe_file_name(
+        campaign.campaign_name
+    )
 
     st.download_button(
         label="📦 Download My Complete Marketing Kit",
@@ -256,7 +306,6 @@ def _render_result(
         file_name=f"{safe_name}.zip",
         mime="application/zip",
         type="primary",
-        width="stretch",
         key="quick_download_marketing_kit",
     )
 

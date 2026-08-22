@@ -1,511 +1,225 @@
-"""Campaign History page for Filtrify.
-
-This page lists previously saved campaigns and allows the user to:
-
-- review campaign metadata;
-- inspect the stored campaign JSON;
-- download the stored JSON file;
-- delete individual campaigns;
-- clear the complete campaign history.
-"""
+"""Campaign History page for YAffiliate (Supabase)."""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import re
 
 import streamlit as st
 
-from app.components.layout import (
-    page_header,
+from app.components.layout import navigate_to, page_header
+from app.services.campaign_history_supabase_service import (
+    CampaignHistorySupabaseService,
 )
-from app.models.saved_campaign import (
-    SavedCampaign,
-)
-from app.services.campaign_history_service import (
-    CampaignHistoryService,
-)
-
-
-history_service = CampaignHistoryService()
 
 
 def render() -> None:
-    """Render the Filtrify Campaign History page."""
-
     page_header(
         "My Campaigns",
         "Access every marketing campaign you've created.",
-        (
-            "Review, download and manage every campaign generated with Filtrify."
-        ),
+        "Review, open, download and manage campaigns generated with YAffiliate.",
     )
 
-    saved_campaigns = (
-        history_service.list_campaigns()
-    )
+    # The authenticated Supabase UUID is stored when the user signs in.
+    user_id = st.session_state.get("auth_user_id")
 
-    _render_history_summary(
-        saved_campaigns
-    )
-
-    if not saved_campaigns:
-        st.info(
-            "No campaigns have been saved yet. "
-            "Generate a campaign and use the Save Campaign button."
-        )
+    if not user_id:
+        st.error("Your authenticated user ID could not be found. Please sign in again.")
         return
+
+    # Create the history service only when the page is rendered,
+    # using the authenticated user's real Supabase UUID.
+    try:
+        history_service = CampaignHistorySupabaseService(
+            user_id=str(user_id)
+        )
+        campaigns = history_service.list_campaigns()
+    except Exception as error:
+        st.error("Campaign history could not be loaded.")
+        st.exception(error)
+        return
+
+    if not campaigns:
+        st.info("You have no saved campaigns yet.")
+        return
+
+    st.columns(4)[0].metric("Campaigns", len(campaigns))
+
+    campaign_ids = [campaign["id"] for campaign in campaigns]
 
     selected_campaign_id = st.selectbox(
         "Choose a campaign",
-        options=[
-            campaign.campaign_id
-            for campaign in saved_campaigns
-        ],
-        format_func=lambda campaign_id: (
-            _campaign_label(
-                campaign_id=campaign_id,
-                campaigns=saved_campaigns,
-            )
+        campaign_ids,
+        format_func=lambda campaign_id: _campaign_label(
+            campaign_id,
+            campaigns,
         ),
         key="campaign_history_selected_id",
     )
 
     selected_campaign = next(
-        (
-            campaign
-            for campaign in saved_campaigns
-            if (
-                campaign.campaign_id
-                == selected_campaign_id
-            )
-        ),
-        None,
+        campaign
+        for campaign in campaigns
+        if campaign["id"] == selected_campaign_id
     )
 
-    if selected_campaign is None:
-        st.error(
-            "The selected campaign could not be found."
-        )
-        return
+    st.subheader("Overview")
 
-    _render_campaign_metadata(
-        selected_campaign
+    st.write(
+        "**Product:**",
+        selected_campaign.get("product_name", ""),
     )
 
-    _render_campaign_data(
-        selected_campaign
-    )
-
-    _render_campaign_actions(
-        selected_campaign
-    )
-
-    _render_clear_history(
-        saved_campaigns
-    )
-
-
-def _render_history_summary(
-    saved_campaigns: list[SavedCampaign],
-) -> None:
-    """Render campaign-history summary metrics."""
-
-    total_campaigns = len(
-        saved_campaigns
-    )
-
-    total_assets = sum(
-        campaign.asset_count
-        for campaign in saved_campaigns
-    )
-
-    total_words = sum(
-        campaign.total_estimated_words
-        for campaign in saved_campaigns
-    )
-
-    average_quality = (
-        round(
-            sum(
-                campaign.average_quality_score
-                for campaign in saved_campaigns
-            )
-            / total_campaigns,
-            1,
-        )
-        if total_campaigns
-        else 0.0
-    )
-
-    (
-        campaign_metric,
-        asset_metric,
-        word_metric,
-        quality_metric,
-    ) = st.columns(4)
-
-    campaign_metric.metric(
-        "Campaigns",
-        total_campaigns,
-    )
-
-    asset_metric.metric(
-        "Assets",
-        total_assets,
-    )
-
-    word_metric.metric(
-        "Words",
-        f"{total_words:,}",
-    )
-
-    quality_metric.metric(
-        "Quality",
-        f"{average_quality:.1f}/100",
-    )
-
-
-def _render_campaign_metadata(
-    campaign: SavedCampaign,
-) -> None:
-    """Render metadata for one saved campaign."""
-
-    st.divider()
-
-    st.markdown("### Campaign Overview")
-
-    with st.expander(
-            "Technical Details",
-            expanded=False,
-    ):
-        st.code(
-            campaign.campaign_id
-        )
-
-    (
-        product_column,
-        asset_column,
-        word_column,
-        quality_column,
-    ) = st.columns(4)
-
-    product_column.markdown(
-        "**Product**"
-    )
-
-    product_column.write(
-        campaign.product_name
-    )
-
-    asset_column.metric(
-        "Assets",
-        campaign.asset_count,
-    )
-
-    word_column.metric(
-        "Estimated words",
-        f"{campaign.total_estimated_words:,}",
-    )
-
-    quality_column.metric(
-        "Quality",
-        (
-            f"{campaign.average_quality_score:.1f}"
-            "/100"
-        ),
-    )
-
-    detail_column_1, detail_column_2 = (
-        st.columns(2)
-    )
-
-    with detail_column_1:
-        st.markdown(
-            "**Target keyword**"
-        )
-
-        st.write(
-            campaign.target_keyword
-        )
-
-        st.markdown(
-            "**Writing tone**"
-        )
-
-        st.write(
-            campaign.tone
-        )
-
-        st.markdown(
-            "**Generated**"
-        )
-
-        st.write(
-            campaign.created_at.strftime(
-                "%d %B %Y, %H:%M UTC"
-            )
-        )
-
-    with detail_column_2:
-        st.markdown(
-            "**Target audience**"
-        )
-
-        st.write(
-            campaign.target_audience
-        )
-
-        st.markdown(
-            "**Saved**"
-        )
-
-        st.write(
-            campaign.saved_at.strftime(
-                "%d %B %Y, %H:%M UTC"
-            )
-        )
-
-        st.markdown(
-            "**Storage**"
-        )
-
-        st.write(
-            "Saved locally"
-        )
-
-
-def _render_campaign_data(
-    campaign: SavedCampaign,
-) -> None:
-    """Render the stored campaign JSON."""
-
-    st.divider()
-
-    st.subheader(
-        "Campaign Files"
+    st.write(
+        "**Created:**",
+        selected_campaign.get("created_at", ""),
     )
 
     try:
-        campaign_data = (
-            history_service.load_campaign_data(
-                campaign.campaign_id
-            )
+        campaign_data = history_service.load_campaign_data(
+            selected_campaign_id
         )
-
     except Exception as error:
-        st.error(
-            "The saved campaign data could not be loaded. "
-            f"{error}"
-        )
+        st.error("This campaign could not be opened.")
+        st.exception(error)
         return
 
-    with st.expander(
-        "Developer Data",
-        expanded=False,
-    ):
-        st.json(
-            campaign_data
-        )
+    with st.expander("Campaign JSON", expanded=False):
+        st.json(campaign_data)
 
     campaign_json = json.dumps(
         campaign_data,
-        ensure_ascii=False,
         indent=2,
+        ensure_ascii=False,
     )
 
-    safe_file_name = (
-        campaign.campaign_name
-        .strip()
-        .replace(
-            " ",
-            "_",
+    safe_name = _safe_file_name(
+        selected_campaign.get(
+            "product_name",
+            "campaign",
         )
     )
 
     st.download_button(
-        label="Download Campaign JSON",
-        data=campaign_json,
-        file_name=(
-            f"{safe_file_name}.json"
-        ),
+        "Download JSON",
+        campaign_json,
+        file_name=f"{safe_name}.json",
         mime="application/json",
-        width="stretch",
-        key=(
-            "download_saved_campaign_"
-            f"{campaign.campaign_id}"
-        ),
+        use_container_width=True,
+        key=f"download_campaign_{selected_campaign_id}",
     )
 
-
-def _render_campaign_actions(
-    campaign: SavedCampaign,
-) -> None:
-    """Render actions for one saved campaign."""
-
-    st.divider()
-
-    st.subheader(
-        "Manage Campaign"
-    )
-
-    delete_campaign = st.button(
-        "Delete Campaign",
-        type="secondary",
-        width="stretch",
-        key=(
-            "delete_saved_campaign_"
-            f"{campaign.campaign_id}"
-        ),
-    )
-
-    if not delete_campaign:
-        return
-
-    confirmation_key = (
-        "confirm_delete_saved_campaign"
-    )
-
-    st.session_state[
-        confirmation_key
-    ] = campaign.campaign_id
-
-    st.warning(
-        "Click the confirmation button below "
-        "to permanently delete this saved campaign."
-    )
-
-    confirm_delete = st.button(
-        "Confirm campaign deletion",
+    if st.button(
+        "📂 Open Campaign",
         type="primary",
-        width="stretch",
-        key=(
-            "confirm_delete_campaign_"
-            f"{campaign.campaign_id}"
-        ),
-    )
-
-    if not confirm_delete:
-        return
-
-    try:
-        deleted = (
-            history_service.delete_campaign(
-                campaign.campaign_id
-            )
-        )
-
-    except Exception as error:
-        st.error(
-            "The campaign could not be deleted. "
-            f"{error}"
-        )
-        return
-
-    if not deleted:
-        st.warning(
-            "The selected campaign was not found."
-        )
-        return
-
-    st.session_state.pop(
-        confirmation_key,
-        None,
-    )
-
-    st.success(
-        "The saved campaign was deleted."
-    )
-
-    st.rerun()
-
-
-def _render_clear_history(
-    saved_campaigns: list[SavedCampaign],
-) -> None:
-    """Render the clear-history controls."""
-
-    if not saved_campaigns:
-        return
-
-    st.divider()
-
-    with st.expander(
-        "Advanced Options",
-        expanded=False,
+        use_container_width=True,
+        key=f"open_campaign_{selected_campaign_id}",
     ):
-        st.warning(
-            "Clearing history permanently deletes "
-            "all saved campaign files."
+        st.session_state["loaded_campaign"] = campaign_data
+        st.session_state["loaded_campaign_id"] = selected_campaign_id
+
+        st.session_state.pop(
+            "generated_campaign",
+            None,
         )
 
-        clear_history = st.button(
-            "Delete All Campaigns",
-            type="secondary",
-            width="stretch",
-            key="clear_all_campaign_history",
-        )
+        navigate_to("campaign_generator")
+        st.rerun()
 
-        if not clear_history:
-            return
-
-        confirm_clear = st.checkbox(
-            "I understand that all saved campaigns will be deleted.",
-            key="confirm_clear_campaign_history",
-        )
-
-        if not confirm_clear:
-            st.info(
-                "Tick the confirmation box to continue."
-            )
-            return
-
-        final_clear = st.button(
-            "Permanently clear campaign history",
-            type="primary",
-            width="stretch",
-            key="confirm_clear_all_campaign_history",
-        )
-
-        if not final_clear:
-            return
-
+    if st.button(
+        "Delete Campaign",
+        use_container_width=True,
+        key=f"delete_campaign_{selected_campaign_id}",
+    ):
         try:
-            removed_count = (
-                history_service.clear_history()
+            history_service.delete_campaign(
+                selected_campaign_id
             )
+
+            st.session_state.pop(
+                "loaded_campaign",
+                None,
+            )
+
+            st.session_state.pop(
+                "loaded_campaign_id",
+                None,
+            )
+
+            st.success("Campaign deleted.")
+            st.rerun()
 
         except Exception as error:
-            st.error(
-                "Campaign history could not be cleared. "
-                f"{error}"
-            )
-            return
+            st.exception(error)
 
-        st.success(
-            f"Removed {removed_count} saved campaign(s)."
-        )
+    with st.expander(
+        "Advanced",
+        expanded=False,
+    ):
+        if st.button(
+            "Delete ALL Campaigns",
+            use_container_width=True,
+            key="delete_all_campaigns",
+        ):
+            try:
+                history_service.clear_history()
 
-        st.rerun()
+                st.session_state.pop(
+                    "loaded_campaign",
+                    None,
+                )
+
+                st.session_state.pop(
+                    "loaded_campaign_id",
+                    None,
+                )
+
+                st.success("History cleared.")
+                st.rerun()
+
+            except Exception as error:
+                st.exception(error)
 
 
 def _campaign_label(
-    *,
     campaign_id: str,
-    campaigns: list[SavedCampaign],
+    campaigns: list[dict],
 ) -> str:
-    """Return the display label for a campaign identifier."""
-
     campaign = next(
         (
             item
             for item in campaigns
-            if item.campaign_id == campaign_id
+            if item["id"] == campaign_id
         ),
         None,
     )
 
-    if campaign is None:
+    if not campaign:
         return campaign_id
 
-    return campaign.display_name
+    product = campaign.get(
+        "product_name",
+        "Campaign",
+    )
+
+    created = str(
+        campaign.get(
+            "created_at",
+            "",
+        )
+    )[:19]
+
+    return f"{product} - {created}"
+
+
+def _safe_file_name(value: str) -> str:
+    cleaned = re.sub(
+        r"[^A-Za-z0-9_-]+",
+        "_",
+        value.strip(),
+    )
+
+    return (
+        re.sub(r"_+", "_", cleaned).strip("_")
+        or "yaffiliate_campaign"
+    )
