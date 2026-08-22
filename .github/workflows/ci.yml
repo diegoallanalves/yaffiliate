@@ -1,0 +1,41 @@
+name: YAffiliate CI
+
+on:
+  push:
+    branches:
+      - development
+  pull_request:
+    branches:
+      - development
+      - main
+
+jobs:
+  test:
+    name: Test YAffiliate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile Python code
+        run: python -m compileall app
+
+      - name: Test core dependencies
+        run: |
+          python -c "import streamlit, supabase, stripe, fastapi, uvicorn; print('YAFFiliate dependencies OK')"
+
+      - name: Test YAffiliate services
+        run: |
+          python -c "from app.services.supabase_service import SupabaseService; from app.services.stripe_service import StripeService; from app.services.subscription_service import SubscriptionService; print('YAFFiliate services import OK')"
