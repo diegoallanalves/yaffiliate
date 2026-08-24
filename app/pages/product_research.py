@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from decimal import Decimal
 
@@ -205,7 +205,7 @@ def render() -> None:
             )
 
             save_product = st.form_submit_button(
-                "Save product to SQL Server",
+                "Save product",
                 width="stretch",
             )
 
@@ -420,7 +420,7 @@ def render() -> None:
 
     if not products:
         st.info(
-            "No products found in SQL Server."
+            "No products found yet."
         )
         return
 
@@ -566,7 +566,7 @@ def render() -> None:
 
     product_labels = {
         int(row["ProductID"]): (
-            f'{row["ProductID"]} — '
+            f'{row["ProductID"]} â€” '
             f'{row["ProductName"]}'
         )
         for _, row in products_df.iterrows()

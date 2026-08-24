@@ -1,18 +1,20 @@
+"""Supabase repository for product recommendations."""
+
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from sqlalchemy import text
-from sqlalchemy.engine import Engine
-
 from app.models.recommendation import Recommendation
-from app.repositories.sql_server import get_sql_server_engine
+from app.services.supabase_service import SupabaseService
 
 
 class RecommendationRepository:
-    def __init__(self, engine: Engine | None = None) -> None:
-        self.engine = engine or get_sql_server_engine()
+    """Read and write authenticated user's product recommendations."""
+
+    @staticmethod
+    def _client():
+        return SupabaseService().client
 
     def create_recommendation(
         self,
@@ -20,153 +22,124 @@ class RecommendationRepository:
         product_id: int,
         recommendation: Recommendation,
     ) -> int:
-        query = text(
-            """
-            INSERT INTO ProductRecommendations (
-                ProductID,
-                OpportunityScore,
-                OpportunityLevel,
-                RiskLevel,
-                Difficulty,
-                RecommendedChannel,
-                ExpectedROI,
-                RecommendedBudget,
-                Reasoning,
-                NextActions
+        response = (
+            self._client()
+            .table("product_recommendations")
+            .insert(
+                {
+                    "product_id": product_id,
+                    "opportunity_score": recommendation.opportunity_score,
+                    "opportunity_level": recommendation.opportunity_level,
+                    "risk_level": recommendation.risk_level,
+                    "difficulty": recommendation.difficulty,
+                    "recommended_channel": recommendation.recommended_channel,
+                    "expected_roi": recommendation.expected_roi,
+                    "recommended_budget": recommendation.recommended_budget,
+                    "reasoning": recommendation.reasoning,
+                    "next_actions": recommendation.next_actions,
+                }
             )
-            OUTPUT INSERTED.RecommendationID
-            VALUES (
-                :product_id,
-                :opportunity_score,
-                :opportunity_level,
-                :risk_level,
-                :difficulty,
-                :recommended_channel,
-                :expected_roi,
-                :recommended_budget,
-                :reasoning,
-                :next_actions
-            )
-            """
+            .execute()
         )
 
-        parameters = {
-            "product_id": product_id,
-            "opportunity_score": recommendation.opportunity_score,
-            "opportunity_level": recommendation.opportunity_level,
-            "risk_level": recommendation.risk_level,
-            "difficulty": recommendation.difficulty,
-            "recommended_channel": recommendation.recommended_channel,
-            "expected_roi": recommendation.expected_roi,
-            "recommended_budget": recommendation.recommended_budget,
-            "reasoning": json.dumps(
-                recommendation.reasoning,
-                ensure_ascii=False,
-            ),
-            "next_actions": json.dumps(
-                recommendation.next_actions,
-                ensure_ascii=False,
-            ),
-        }
+        rows = list(response.data or [])
 
-        with self.engine.begin() as connection:
-            recommendation_id = connection.execute(
-                query,
-                parameters,
-            ).scalar_one()
+        if not rows:
+            raise RuntimeError(
+                "Supabase did not return the created recommendation."
+            )
 
-        return int(recommendation_id)
+        return int(rows[0]["recommendation_id"])
 
     def get_latest_for_product(
         self,
         product_id: int,
     ) -> dict[str, Any] | None:
-        query = text(
-            """
-            SELECT TOP 1
-                RecommendationID,
-                ProductID,
-                OpportunityScore,
-                OpportunityLevel,
-                RiskLevel,
-                Difficulty,
-                RecommendedChannel,
-                ExpectedROI,
-                RecommendedBudget,
-                Reasoning,
-                NextActions,
-                CreatedAt
-            FROM ProductRecommendations
-            WHERE ProductID = :product_id
-            ORDER BY CreatedAt DESC, RecommendationID DESC
-            """
+        response = (
+            self._client()
+            .table("product_recommendations")
+            .select("*")
+            .eq("product_id", product_id)
+            .order("created_at", desc=True)
+            .order("recommendation_id", desc=True)
+            .limit(1)
+            .execute()
         )
 
-        with self.engine.connect() as connection:
-            row = connection.execute(
-                query,
-                {"product_id": product_id},
-            ).mappings().first()
+        rows = list(response.data or [])
 
-        if row is None:
-            return None
-
-        result = dict(row)
-
-        result["Reasoning"] = json.loads(
-            result["Reasoning"] or "[]"
-        )
-
-        result["NextActions"] = json.loads(
-            result["NextActions"] or "[]"
-        )
-
-        return result
+        return self._format_row(rows[0]) if rows else None
 
     def list_for_product(
         self,
         product_id: int,
     ) -> list[dict[str, Any]]:
-        query = text(
-            """
-            SELECT
-                RecommendationID,
-                ProductID,
-                OpportunityScore,
-                OpportunityLevel,
-                RiskLevel,
-                Difficulty,
-                RecommendedChannel,
-                ExpectedROI,
-                RecommendedBudget,
-                Reasoning,
-                NextActions,
-                CreatedAt
-            FROM ProductRecommendations
-            WHERE ProductID = :product_id
-            ORDER BY CreatedAt DESC, RecommendationID DESC
-            """
+        response = (
+            self._client()
+            .table("product_recommendations")
+            .select("*")
+            .eq("product_id", product_id)
+            .order("created_at", desc=True)
+            .order("recommendation_id", desc=True)
+            .execute()
         )
 
-        with self.engine.connect() as connection:
-            rows = connection.execute(
-                query,
-                {"product_id": product_id},
-            ).mappings().all()
+        return [
+            self._format_row(row)
+            for row in (response.data or [])
+        ]
 
-        recommendations: list[dict[str, Any]] = []
+    @staticmethod
+    def _json_list(value: Any) -> list[Any]:
+        if value is None:
+            return []
 
-        for row in rows:
-            item = dict(row)
+        if isinstance(value, list):
+            return value
 
-            item["Reasoning"] = json.loads(
-                item["Reasoning"] or "[]"
-            )
+        if isinstance(value, str):
+            try:
+                decoded = json.loads(value)
+                return (
+                    decoded
+                    if isinstance(decoded, list)
+                    else []
+                )
+            except json.JSONDecodeError:
+                return []
 
-            item["NextActions"] = json.loads(
-                item["NextActions"] or "[]"
-            )
+        return []
 
-            recommendations.append(item)
-
-        return recommendations
+    @classmethod
+    def _format_row(
+        cls,
+        row: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "RecommendationID": row.get(
+                "recommendation_id"
+            ),
+            "ProductID": row.get("product_id"),
+            "OpportunityScore": row.get(
+                "opportunity_score"
+            ),
+            "OpportunityLevel": row.get(
+                "opportunity_level"
+            ),
+            "RiskLevel": row.get("risk_level"),
+            "Difficulty": row.get("difficulty"),
+            "RecommendedChannel": row.get(
+                "recommended_channel"
+            ),
+            "ExpectedROI": row.get("expected_roi"),
+            "RecommendedBudget": row.get(
+                "recommended_budget"
+            ),
+            "Reasoning": cls._json_list(
+                row.get("reasoning")
+            ),
+            "NextActions": cls._json_list(
+                row.get("next_actions")
+            ),
+            "CreatedAt": row.get("created_at"),
+        }
