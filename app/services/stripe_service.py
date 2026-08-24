@@ -81,8 +81,8 @@ class StripeService:
         *,
         user_id: str,
         email: str,
-        success_url: str = "http://localhost:8501/?payment=success",
-        cancel_url: str = "http://localhost:8501/?payment=cancelled",
+        success_url: str = "https://yaffiliate-ai.streamlit.app/?payment=success",
+        cancel_url: str = "https://yaffiliate-ai.streamlit.app/?payment=cancelled",
     ) -> dict[str, Any]:
         """
         Create a Stripe Checkout Session for YAffiliate Pro.
