@@ -1,16 +1,18 @@
+"""Supabase repository for product opportunity history."""
+
 from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import text
-from sqlalchemy.engine import Engine
-
-from app.repositories.sql_server import get_sql_server_engine
+from app.services.supabase_service import SupabaseService
 
 
 class OpportunityHistoryRepository:
-    def __init__(self, engine: Engine | None = None) -> None:
-        self.engine = engine or get_sql_server_engine()
+    """Read and write authenticated user's product-history snapshots."""
+
+    @staticmethod
+    def _client():
+        return SupabaseService().client
 
     def create_snapshot(
         self,
@@ -25,114 +27,94 @@ class OpportunityHistoryRepository:
         google_trend_score: float | None = None,
         refund_rate: float | None = None,
     ) -> int:
-        query = text(
-            """
-            INSERT INTO ProductOpportunityHistory (
-                ProductID,
-                OpportunityScore,
-                EPC,
-                GravityScore,
-                SearchVolume,
-                CompetitionScore,
-                EstimatedCPC,
-                GoogleTrendScore,
-                RefundRate
+        response = (
+            self._client()
+            .table("product_opportunity_history")
+            .insert(
+                {
+                    "product_id": product_id,
+                    "opportunity_score": opportunity_score,
+                    "epc": epc,
+                    "gravity_score": gravity_score,
+                    "search_volume": search_volume,
+                    "competition_score": competition_score,
+                    "estimated_cpc": estimated_cpc,
+                    "google_trend_score": google_trend_score,
+                    "refund_rate": refund_rate,
+                }
             )
-            OUTPUT INSERTED.OpportunityHistoryID
-            VALUES (
-                :product_id,
-                :opportunity_score,
-                :epc,
-                :gravity_score,
-                :search_volume,
-                :competition_score,
-                :estimated_cpc,
-                :google_trend_score,
-                :refund_rate
-            )
-            """
+            .execute()
         )
 
-        parameters = {
-            "product_id": product_id,
-            "opportunity_score": opportunity_score,
-            "epc": epc,
-            "gravity_score": gravity_score,
-            "search_volume": search_volume,
-            "competition_score": competition_score,
-            "estimated_cpc": estimated_cpc,
-            "google_trend_score": google_trend_score,
-            "refund_rate": refund_rate,
-        }
+        rows = list(response.data or [])
 
-        with self.engine.begin() as connection:
-            history_id = connection.execute(
-                query,
-                parameters,
-            ).scalar_one()
+        if not rows:
+            raise RuntimeError(
+                "Supabase did not return the created history snapshot."
+            )
 
-        return int(history_id)
+        return int(rows[0]["opportunity_history_id"])
 
     def list_for_product(
         self,
         product_id: int,
     ) -> list[dict[str, Any]]:
-        query = text(
-            """
-            SELECT
-                OpportunityHistoryID,
-                ProductID,
-                OpportunityScore,
-                EPC,
-                GravityScore,
-                SearchVolume,
-                CompetitionScore,
-                EstimatedCPC,
-                GoogleTrendScore,
-                RefundRate,
-                RecordedAt
-            FROM ProductOpportunityHistory
-            WHERE ProductID = :product_id
-            ORDER BY RecordedAt ASC, OpportunityHistoryID ASC
-            """
+        response = (
+            self._client()
+            .table("product_opportunity_history")
+            .select("*")
+            .eq("product_id", product_id)
+            .order("recorded_at")
+            .order("opportunity_history_id")
+            .execute()
         )
 
-        with self.engine.connect() as connection:
-            rows = connection.execute(
-                query,
-                {"product_id": product_id},
-            ).mappings().all()
-
-        return [dict(row) for row in rows]
+        return [
+            self._format_row(row)
+            for row in (response.data or [])
+        ]
 
     def get_latest_for_product(
         self,
         product_id: int,
     ) -> dict[str, Any] | None:
-        query = text(
-            """
-            SELECT TOP 1
-                OpportunityHistoryID,
-                ProductID,
-                OpportunityScore,
-                EPC,
-                GravityScore,
-                SearchVolume,
-                CompetitionScore,
-                EstimatedCPC,
-                GoogleTrendScore,
-                RefundRate,
-                RecordedAt
-            FROM ProductOpportunityHistory
-            WHERE ProductID = :product_id
-            ORDER BY RecordedAt DESC, OpportunityHistoryID DESC
-            """
+        response = (
+            self._client()
+            .table("product_opportunity_history")
+            .select("*")
+            .eq("product_id", product_id)
+            .order("recorded_at", desc=True)
+            .order("opportunity_history_id", desc=True)
+            .limit(1)
+            .execute()
         )
 
-        with self.engine.connect() as connection:
-            row = connection.execute(
-                query,
-                {"product_id": product_id},
-            ).mappings().first()
+        rows = list(response.data or [])
 
-        return dict(row) if row else None
+        return self._format_row(rows[0]) if rows else None
+
+    @staticmethod
+    def _format_row(
+        row: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "OpportunityHistoryID": row.get(
+                "opportunity_history_id"
+            ),
+            "ProductID": row.get("product_id"),
+            "OpportunityScore": row.get(
+                "opportunity_score"
+            ),
+            "EPC": row.get("epc"),
+            "GravityScore": row.get("gravity_score"),
+            "SearchVolume": row.get("search_volume"),
+            "CompetitionScore": row.get(
+                "competition_score"
+            ),
+            "EstimatedCPC": row.get("estimated_cpc"),
+            "GoogleTrendScore": row.get(
+                "google_trend_score"
+            ),
+            "RefundRate": row.get("refund_rate"),
+            "RecordedAt": row.get("recorded_at"),
+        }

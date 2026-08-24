@@ -13,7 +13,6 @@ from app.services.subscription_service import SubscriptionService
 
 def _query_value(name: str) -> str:
     """Return a single Streamlit query-parameter value."""
-
     value = st.query_params.get(name, "")
 
     if isinstance(value, list):
@@ -24,7 +23,6 @@ def _query_value(name: str) -> str:
 
 def _handle_payment_return() -> None:
     """Verify a Stripe Checkout return before granting Pro access."""
-
     payment = _query_value("payment").lower()
     session_id = _query_value("session_id")
 

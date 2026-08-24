@@ -1,38 +1,64 @@
+"""Supabase repository for YAffiliate products."""
+
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import text
-from sqlalchemy.engine import Engine
-
-from app.repositories.sql_server import get_sql_server_engine
+from app.services.supabase_service import SupabaseService
 
 
 class ProductRepository:
-    def __init__(self, engine: Engine | None = None) -> None:
-        self.engine = engine or get_sql_server_engine()
+    """
+    Read and write the authenticated user's product data.
+
+    IMPORTANT:
+    Do not keep a long-lived Supabase client here. Streamlit modules can
+    create repository objects before the user signs in. A fresh client is
+    therefore created for every repository operation so the current
+    Supabase session is restored before RLS-protected requests.
+    """
+
+    @staticmethod
+    def _client():
+        return SupabaseService().client
+
+    def _current_user_id(self) -> str:
+        client = self._client()
+
+        try:
+            response = client.auth.get_user()
+        except Exception as exc:
+            raise ValueError(
+                "An authenticated Supabase session is required."
+            ) from exc
+
+        user = getattr(response, "user", None)
+        user_id = getattr(user, "id", None)
+
+        if not user_id:
+            raise ValueError(
+                "An authenticated Supabase session is required."
+            )
+
+        return str(user_id)
 
     def list_affiliate_networks(self) -> list[dict[str, Any]]:
-        """
-        Return all affiliate networks available in SQL Server.
-
-        Used by the Product Research page to populate the
-        Affiliate Network dropdown.
-        """
-        query = text(
-            """
-            SELECT
-                NetworkID,
-                NetworkName
-            FROM AffiliateNetworks
-            ORDER BY NetworkName
-            """
+        response = (
+            self._client()
+            .table("affiliate_networks")
+            .select("network_id,network_name")
+            .order("network_name")
+            .execute()
         )
 
-        with self.engine.connect() as connection:
-            rows = connection.execute(query).mappings().all()
-
-        return [dict(row) for row in rows]
+        return [
+            {
+                "NetworkID": row.get("network_id"),
+                "NetworkName": row.get("network_name"),
+            }
+            for row in (response.data or [])
+        ]
 
     def create_product(
         self,
@@ -53,100 +79,57 @@ class ProductRepository:
         if not product_name.strip():
             raise ValueError("Product name is required.")
 
-        query = text(
-            """
-            INSERT INTO Products (
-                NetworkID,
-                ProductName,
-                Category,
-                LanguageCode,
-                CountryCode,
-                Price,
-                CommissionAmount,
-                CommissionPercent,
-                SalesPageURL,
-                AffiliateURL,
-                Status,
-                Notes
+        user_id = self._current_user_id()
+        client = self._client()
+
+        response = (
+            client
+            .table("products")
+            .insert(
+                {
+                    "user_id": user_id,
+                    "network_id": network_id,
+                    "product_name": product_name.strip(),
+                    "category": category,
+                    "language_code": language_code,
+                    "country_code": country_code,
+                    "price": price,
+                    "commission_amount": commission_amount,
+                    "commission_percent": commission_percent,
+                    "sales_page_url": sales_page_url,
+                    "affiliate_url": affiliate_url,
+                    "status": status,
+                    "notes": notes,
+                }
             )
-            OUTPUT INSERTED.ProductID
-            VALUES (
-                :network_id,
-                :product_name,
-                :category,
-                :language_code,
-                :country_code,
-                :price,
-                :commission_amount,
-                :commission_percent,
-                :sales_page_url,
-                :affiliate_url,
-                :status,
-                :notes
-            )
-            """
+            .execute()
         )
 
-        parameters = {
-            "network_id": network_id,
-            "product_name": product_name.strip(),
-            "category": category,
-            "language_code": language_code,
-            "country_code": country_code,
-            "price": price,
-            "commission_amount": commission_amount,
-            "commission_percent": commission_percent,
-            "sales_page_url": sales_page_url,
-            "affiliate_url": affiliate_url,
-            "status": status,
-            "notes": notes,
-        }
+        rows = list(response.data or [])
 
-        with self.engine.begin() as connection:
-            product_id = connection.execute(
-                query,
-                parameters,
-            ).scalar_one()
+        if not rows:
+            raise RuntimeError(
+                "Supabase did not return the created product."
+            )
 
-        return int(product_id)
+        return int(rows[0]["product_id"])
 
     def get_product(
         self,
         product_id: int,
     ) -> dict[str, Any] | None:
-        query = text(
-            """
-            SELECT
-                p.ProductID,
-                p.NetworkID,
-                n.NetworkName,
-                p.ProductName,
-                p.Category,
-                p.LanguageCode,
-                p.CountryCode,
-                p.Price,
-                p.CommissionAmount,
-                p.CommissionPercent,
-                p.SalesPageURL,
-                p.AffiliateURL,
-                p.Status,
-                p.Notes,
-                p.CreatedAt,
-                p.UpdatedAt
-            FROM Products p
-            LEFT JOIN AffiliateNetworks n
-                ON n.NetworkID = p.NetworkID
-            WHERE p.ProductID = :product_id
-            """
+        response = (
+            self._client()
+            .table("products")
+            .select("*,affiliate_networks(network_name)")
+            .eq("product_id", product_id)
+            .limit(1)
+            .execute()
         )
 
-        with self.engine.connect() as connection:
-            row = connection.execute(
-                query,
-                {"product_id": product_id},
-            ).mappings().first()
+        rows = list(response.data or [])
 
-        return dict(row) if row else None
+        return self._format_product(rows[0]) if rows else None
 
     def list_products(
         self,
@@ -154,50 +137,67 @@ class ProductRepository:
         status: str | None = None,
         search: str | None = None,
     ) -> list[dict[str, Any]]:
-        query = """
-            SELECT
-                ProductID,
-                ProductName,
-                NetworkName,
-                Category,
-                LanguageCode,
-                CountryCode,
-                Price,
-                CommissionAmount,
-                CommissionPercent,
-                EPC,
-                GravityScore,
-                SearchVolume,
-                CompetitionScore,
-                EstimatedCPC,
-                GoogleTrendScore,
-                RefundRate,
-                OpportunityScore,
-                MetricDate,
-                Status
-            FROM vw_ProductOpportunitySummary
-            WHERE 1 = 1
-        """
-
-        parameters: dict[str, Any] = {}
+        query = (
+            self._client()
+            .table("products")
+            .select("*,affiliate_networks(network_name)")
+        )
 
         if status:
-            query += " AND Status = :status"
-            parameters["status"] = status
+            query = query.eq("status", status)
 
-        if search:
-            query += " AND ProductName LIKE :search"
-            parameters["search"] = f"%{search.strip()}%"
+        if search and search.strip():
+            query = query.ilike(
+                "product_name",
+                f"%{search.strip()}%",
+            )
 
-        query += " ORDER BY ProductName"
+        response = query.order("product_name").execute()
 
-        with self.engine.connect() as connection:
-            rows = connection.execute(
-                text(query),
-                parameters,
-            ).mappings().all()
+        products: list[dict[str, Any]] = []
 
-        return [dict(row) for row in rows]
+        for row in (response.data or []):
+            product = self._format_product(row)
+
+            product_id = product.get("ProductID")
+
+            metric = (
+                self.get_latest_product_metric(
+                    int(product_id)
+                )
+                if product_id is not None
+                else None
+            ) or {}
+
+            product.update(
+                {
+                    "EPC": metric.get("EPC"),
+                    "GravityScore": metric.get(
+                        "GravityScore"
+                    ),
+                    "SearchVolume": metric.get(
+                        "SearchVolume"
+                    ),
+                    "CompetitionScore": metric.get(
+                        "CompetitionScore"
+                    ),
+                    "EstimatedCPC": metric.get(
+                        "EstimatedCPC"
+                    ),
+                    "GoogleTrendScore": metric.get(
+                        "GoogleTrendScore"
+                    ),
+                    "RefundRate": metric.get("RefundRate"),
+                    "OpportunityScore": metric.get(
+                        "OpportunityScore"
+                    ),
+                    "MetricDate": metric.get("MetricDate"),
+                }
+            )
+
+            products.append(product)
+
+        return products
 
     def update_product(
         self,
@@ -205,18 +205,18 @@ class ProductRepository:
         **changes: Any,
     ) -> bool:
         allowed_columns = {
-            "network_id": "NetworkID",
-            "product_name": "ProductName",
-            "category": "Category",
-            "language_code": "LanguageCode",
-            "country_code": "CountryCode",
-            "price": "Price",
-            "commission_amount": "CommissionAmount",
-            "commission_percent": "CommissionPercent",
-            "sales_page_url": "SalesPageURL",
-            "affiliate_url": "AffiliateURL",
-            "status": "Status",
-            "notes": "Notes",
+            "network_id",
+            "product_name",
+            "category",
+            "language_code",
+            "country_code",
+            "price",
+            "commission_amount",
+            "commission_percent",
+            "sales_page_url",
+            "affiliate_url",
+            "status",
+            "notes",
         }
 
         filtered_changes = {
@@ -226,60 +226,52 @@ class ProductRepository:
         }
 
         if not filtered_changes:
-            raise ValueError("No valid product fields were supplied.")
+            raise ValueError(
+                "No valid product fields were supplied."
+            )
 
         if (
             "product_name" in filtered_changes
-            and not str(filtered_changes["product_name"]).strip()
+            and not str(
+                filtered_changes["product_name"]
+            ).strip()
         ):
-            raise ValueError("Product name cannot be empty.")
-
-        set_clauses = [
-            f"{allowed_columns[key]} = :{key}"
-            for key in filtered_changes
-        ]
-
-        set_clauses.append("UpdatedAt = SYSUTCDATETIME()")
-
-        query = text(
-            f"""
-            UPDATE Products
-            SET {", ".join(set_clauses)}
-            WHERE ProductID = :product_id
-            """
-        )
-
-        parameters = {
-            **filtered_changes,
-            "product_id": product_id,
-        }
-
-        with self.engine.begin() as connection:
-            result = connection.execute(
-                query,
-                parameters,
+            raise ValueError(
+                "Product name cannot be empty."
             )
 
-        return result.rowcount > 0
+        if "product_name" in filtered_changes:
+            filtered_changes["product_name"] = str(
+                filtered_changes["product_name"]
+            ).strip()
+
+        filtered_changes["updated_at"] = (
+            datetime.now(timezone.utc).isoformat()
+        )
+
+        response = (
+            self._client()
+            .table("products")
+            .update(filtered_changes)
+            .eq("product_id", product_id)
+            .execute()
+        )
+
+        return bool(response.data)
 
     def delete_product(
         self,
         product_id: int,
     ) -> bool:
-        query = text(
-            """
-            DELETE FROM Products
-            WHERE ProductID = :product_id
-            """
+        response = (
+            self._client()
+            .table("products")
+            .delete()
+            .eq("product_id", product_id)
+            .execute()
         )
 
-        with self.engine.begin() as connection:
-            result = connection.execute(
-                query,
-                {"product_id": product_id},
-            )
-
-        return result.rowcount > 0
+        return bool(response.data)
 
     def add_product_metric(
         self,
@@ -295,128 +287,126 @@ class ProductRepository:
         opportunity_score: float | None = None,
         data_source: str | None = None,
     ) -> int:
-        query = text(
-            """
-            INSERT INTO ProductMetrics (
-                ProductID,
-                EPC,
-                GravityScore,
-                SearchVolume,
-                CompetitionScore,
-                EstimatedCPC,
-                GoogleTrendScore,
-                RefundRate,
-                OpportunityScore,
-                DataSource
+        response = (
+            self._client()
+            .table("product_metrics")
+            .insert(
+                {
+                    "product_id": product_id,
+                    "epc": epc,
+                    "gravity_score": gravity_score,
+                    "search_volume": search_volume,
+                    "competition_score": competition_score,
+                    "estimated_cpc": estimated_cpc,
+                    "google_trend_score": google_trend_score,
+                    "refund_rate": refund_rate,
+                    "opportunity_score": opportunity_score,
+                    "data_source": data_source,
+                }
             )
-            OUTPUT INSERTED.ProductMetricID
-            VALUES (
-                :product_id,
-                :epc,
-                :gravity_score,
-                :search_volume,
-                :competition_score,
-                :estimated_cpc,
-                :google_trend_score,
-                :refund_rate,
-                :opportunity_score,
-                :data_source
-            )
-            """
+            .execute()
         )
 
-        parameters = {
-            "product_id": product_id,
-            "epc": epc,
-            "gravity_score": gravity_score,
-            "search_volume": search_volume,
-            "competition_score": competition_score,
-            "estimated_cpc": estimated_cpc,
-            "google_trend_score": google_trend_score,
-            "refund_rate": refund_rate,
-            "opportunity_score": opportunity_score,
-            "data_source": data_source,
-        }
+        rows = list(response.data or [])
 
-        with self.engine.begin() as connection:
-            metric_id = connection.execute(
-                query,
-                parameters,
-            ).scalar_one()
+        if not rows:
+            raise RuntimeError(
+                "Supabase did not return the created product metric."
+            )
 
-        return int(metric_id)
+        return int(rows[0]["product_metric_id"])
 
     def get_latest_product_metric(
         self,
         product_id: int,
     ) -> dict[str, Any] | None:
-        query = text(
-            """
-            SELECT TOP 1
-                ProductMetricID,
-                ProductID,
-                EPC,
-                GravityScore,
-                SearchVolume,
-                CompetitionScore,
-                EstimatedCPC,
-                GoogleTrendScore,
-                RefundRate,
-                OpportunityScore,
-                MetricDate,
-                DataSource,
-                CreatedAt
-            FROM ProductMetrics
-            WHERE ProductID = :product_id
-            ORDER BY
-                MetricDate DESC,
-                ProductMetricID DESC
-            """
+        response = (
+            self._client()
+            .table("product_metrics")
+            .select("*")
+            .eq("product_id", product_id)
+            .order("metric_date", desc=True)
+            .order("product_metric_id", desc=True)
+            .limit(1)
+            .execute()
         )
 
-        with self.engine.connect() as connection:
-            row = connection.execute(
-                query,
-                {"product_id": product_id},
-            ).mappings().first()
+        rows = list(response.data or [])
 
-        return dict(row) if row else None
+        return self._format_metric(rows[0]) if rows else None
 
     def list_product_metrics(
         self,
         product_id: int,
     ) -> list[dict[str, Any]]:
-        """
-        Return the complete metric history for one product.
-        """
-        query = text(
-            """
-            SELECT
-                ProductMetricID,
-                ProductID,
-                EPC,
-                GravityScore,
-                SearchVolume,
-                CompetitionScore,
-                EstimatedCPC,
-                GoogleTrendScore,
-                RefundRate,
-                OpportunityScore,
-                MetricDate,
-                DataSource,
-                CreatedAt
-            FROM ProductMetrics
-            WHERE ProductID = :product_id
-            ORDER BY
-                MetricDate DESC,
-                ProductMetricID DESC
-            """
+        response = (
+            self._client()
+            .table("product_metrics")
+            .select("*")
+            .eq("product_id", product_id)
+            .order("metric_date", desc=True)
+            .order("product_metric_id", desc=True)
+            .execute()
         )
 
-        with self.engine.connect() as connection:
-            rows = connection.execute(
-                query,
-                {"product_id": product_id},
-            ).mappings().all()
+        return [
+            self._format_metric(row)
+            for row in (response.data or [])
+        ]
 
-        return [dict(row) for row in rows]
+    @staticmethod
+    def _format_product(
+        row: dict[str, Any],
+    ) -> dict[str, Any]:
+        network = row.get("affiliate_networks") or {}
+
+        return {
+            "ProductID": row.get("product_id"),
+            "NetworkID": row.get("network_id"),
+            "NetworkName": network.get("network_name"),
+            "ProductName": row.get("product_name"),
+            "Category": row.get("category"),
+            "LanguageCode": row.get("language_code"),
+            "CountryCode": row.get("country_code"),
+            "Price": row.get("price"),
+            "CommissionAmount": row.get(
+                "commission_amount"
+            ),
+            "CommissionPercent": row.get(
+                "commission_percent"
+            ),
+            "SalesPageURL": row.get("sales_page_url"),
+            "AffiliateURL": row.get("affiliate_url"),
+            "Status": row.get("status"),
+            "Notes": row.get("notes"),
+            "CreatedAt": row.get("created_at"),
+            "UpdatedAt": row.get("updated_at"),
+        }
+
+    @staticmethod
+    def _format_metric(
+        row: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "ProductMetricID": row.get(
+                "product_metric_id"
+            ),
+            "ProductID": row.get("product_id"),
+            "EPC": row.get("epc"),
+            "GravityScore": row.get("gravity_score"),
+            "SearchVolume": row.get("search_volume"),
+            "CompetitionScore": row.get(
+                "competition_score"
+            ),
+            "EstimatedCPC": row.get("estimated_cpc"),
+            "GoogleTrendScore": row.get(
+                "google_trend_score"
+            ),
+            "RefundRate": row.get("refund_rate"),
+            "OpportunityScore": row.get(
+                "opportunity_score"
+            ),
+            "MetricDate": row.get("metric_date"),
+            "DataSource": row.get("data_source"),
+            "CreatedAt": row.get("created_at"),
+        }
