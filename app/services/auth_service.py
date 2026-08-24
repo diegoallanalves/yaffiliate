@@ -29,12 +29,59 @@ class AuthService:
         if not password:
             raise ValueError("Password is required.")
 
-        return self.client.auth.sign_up(
-            {
-                "email": cleaned_email,
-                "password": password,
-            }
-        )
+        if len(password) < 6:
+            raise ValueError(
+                "Password must contain at least 6 characters."
+            )
+
+        try:
+            response = self.client.auth.sign_up(
+                {
+                    "email": cleaned_email,
+                    "password": password,
+                }
+            )
+
+            user = getattr(response, "user", None)
+
+            # Supabase may deliberately hide whether an email already
+            # exists. In some configurations it returns a fake/obfuscated
+            # user instead of raising an exception.
+            if user is not None:
+                identities = getattr(user, "identities", None)
+
+                if identities == []:
+                    raise ValueError(
+                        "An account with this email already exists. "
+                        "Please sign in instead."
+                    )
+
+            return response
+
+        except ValueError:
+            raise
+
+        except Exception as exc:
+            message = str(exc).lower()
+
+            # Handle common Supabase duplicate-user responses.
+            duplicate_messages = (
+                "user already registered",
+                "already registered",
+                "already exists",
+                "email already",
+            )
+
+            if any(text in message for text in duplicate_messages):
+                raise ValueError(
+                    "An account with this email already exists. "
+                    "Please sign in instead."
+                ) from exc
+
+            raise ValueError(
+                "We could not create your account. "
+                "Please check your details and try again."
+            ) from exc
 
     def sign_in(
         self,
@@ -51,17 +98,49 @@ class AuthService:
         if not password:
             raise ValueError("Password is required.")
 
-        return self.client.auth.sign_in_with_password(
-            {
-                "email": cleaned_email,
-                "password": password,
-            }
-        )
+        try:
+            return self.client.auth.sign_in_with_password(
+                {
+                    "email": cleaned_email,
+                    "password": password,
+                }
+            )
+
+        except Exception as exc:
+            message = str(exc).lower()
+
+            invalid_login_messages = (
+                "invalid login credentials",
+                "invalid credentials",
+                "email not confirmed",
+            )
+
+            if "email not confirmed" in message:
+                raise ValueError(
+                    "Please confirm your email address before signing in."
+                ) from exc
+
+            if any(
+                text in message
+                for text in invalid_login_messages
+            ):
+                raise ValueError(
+                    "Incorrect email or password."
+                ) from exc
+
+            raise ValueError(
+                "We could not sign you in. Please try again."
+            ) from exc
 
     def sign_out(self) -> None:
         """Sign out the currently authenticated user."""
 
-        self.client.auth.sign_out()
+        try:
+            self.client.auth.sign_out()
+        except Exception as exc:
+            raise ValueError(
+                "We could not sign you out. Please try again."
+            ) from exc
 
     def get_current_user(self) -> Any | None:
         """Return the verified current Supabase user, if available."""
