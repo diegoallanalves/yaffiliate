@@ -27,7 +27,7 @@ trend_analysis_service = TrendAnalysisService()
 
 
 def to_float(value: object | None) -> float:
-    """Convert SQL Server numeric values into Python floats."""
+    """Convert database numeric values into Python floats."""
     if value is None:
         return 0.0
 

@@ -163,10 +163,17 @@ def render() -> None:
     )
 
     if not products:
-        st.info(
-            "Search for a keyword to discover "
-            "affiliate products."
-        )
+        if discovery_keyword:
+            st.warning(
+                f'No products found for "{discovery_keyword}". '
+                "Try another keyword, country, language, "
+                "or affiliate network."
+            )
+        else:
+            st.info(
+                "Search for a keyword to discover "
+                "affiliate products."
+            )
         return
 
     st.subheader(

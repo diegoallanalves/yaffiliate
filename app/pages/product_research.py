@@ -31,7 +31,7 @@ recommendation_service = RecommendationService()
 
 
 def decimal_to_float(value: object) -> float | None:
-    """Convert SQL Server Decimal values into Python floats."""
+    """Convert database numeric values into Python floats."""
     if value is None:
         return None
 
@@ -47,7 +47,7 @@ def render() -> None:
         "Find and compare affiliate opportunities.",
         (
             "Store product economics, demand, competition and historical "
-            "metrics directly in SQL Server."
+            "metrics securely in your YAffiliate workspace."
         ),
     )
 
@@ -566,7 +566,7 @@ def render() -> None:
 
     product_labels = {
         int(row["ProductID"]): (
-            f'{row["ProductID"]} â€” '
+            f'{row["ProductID"]} - '
             f'{row["ProductName"]}'
         )
         for _, row in products_df.iterrows()
@@ -610,3 +610,5 @@ def render() -> None:
 
         except Exception as exc:
             st.exception(exc)
+
+
