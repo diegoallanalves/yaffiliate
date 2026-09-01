@@ -23,13 +23,10 @@ class StripeService:
         if not secret_key:
             raise ValueError("STRIPE_SECRET_KEY is not configured.")
 
-        if not (
-            secret_key.startswith("sk_test_")
-            or secret_key.startswith("sk_live_")
-        ):
+        if not secret_key.startswith(("sk_test_", "sk_live_")):
             raise ValueError(
-                "STRIPE_SECRET_KEY must be a valid Stripe test or live "
-                "secret key."
+                "STRIPE_SECRET_KEY does not appear to be a valid "
+                "Stripe secret key."
             )
 
         if not price_id:
@@ -37,7 +34,8 @@ class StripeService:
 
         if not price_id.startswith("price_"):
             raise ValueError(
-                "STRIPE_PRICE_ID does not appear to be a valid Stripe Price ID."
+                "STRIPE_PRICE_ID does not appear to be a valid "
+                "Stripe Price ID."
             )
 
         stripe.api_key = secret_key
@@ -84,8 +82,12 @@ class StripeService:
         *,
         user_id: str,
         email: str,
-        success_url: str = "https://yaffiliate-ai.streamlit.app/?payment=success",
-        cancel_url: str = "https://yaffiliate-ai.streamlit.app/?payment=cancelled",
+        success_url: str = (
+            "https://yaffiliate-ai.streamlit.app/?payment=success"
+        ),
+        cancel_url: str = (
+            "https://yaffiliate-ai.streamlit.app/?payment=cancelled"
+        ),
     ) -> dict[str, Any]:
         """
         Create a Stripe Checkout Session for YAffiliate Pro.
@@ -110,15 +112,9 @@ class StripeService:
         session = self.client.checkout.Session.create(
             mode="subscription",
             customer_email=email,
-            line_items=[
-                {
-                    "price": self.price_id,
-                    "quantity": 1,
-                }
-            ],
+            line_items=[{"price": self.price_id, "quantity": 1}],
             success_url=(
-                success_url
-                + "&session_id={CHECKOUT_SESSION_ID}"
+                success_url + "&session_id={CHECKOUT_SESSION_ID}"
             ),
             cancel_url=cancel_url,
             client_reference_id=user_id,
