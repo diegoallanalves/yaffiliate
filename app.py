@@ -22,7 +22,7 @@ def _query_value(name: str) -> str:
 
 
 def _handle_payment_return() -> None:
-    """Verify a Stripe Checkout return before granting Pro access."""
+    """Handle and verify a Stripe Checkout return."""
     payment = _query_value("payment").lower()
     session_id = _query_value("session_id")
 
@@ -46,9 +46,13 @@ def _handle_payment_return() -> None:
         st.session_state.get("auth_user_id", "") or ""
     ).strip()
 
+    # Stripe Checkout may return in a fresh Streamlit browser session.
+    # Keep the payment query parameters so verification can continue
+    # automatically after the customer signs back in.
     if not user_id:
-        st.error(
-            "Please sign in again before YAffiliate verifies your payment."
+        st.info(
+            "🎉 Payment received. Please sign in to finish activating "
+            "YAFFiliate Pro."
         )
         return
 
@@ -67,9 +71,7 @@ def _handle_payment_return() -> None:
         st.session_state[processed_key] = True
         st.session_state.pop("stripe_checkout_url", None)
 
-        st.success(
-            "🎉 Payment verified! YAffiliate Pro is now active."
-        )
+        st.success("🎉 Payment verified! YAffiliate Pro is now active.")
 
         status = subscription.get("status", "active")
         currency = subscription.get("currency")
@@ -94,11 +96,14 @@ def _handle_payment_return() -> None:
 
 bootstrap_app()
 
+# Handle Stripe before authentication. If Stripe returns in a fresh
+# Streamlit session, the customer can sign in while the Checkout Session ID
+# remains available for secure verification.
+_handle_payment_return()
+
 if not st.session_state.get("authenticated", False):
     render_auth_page()
     st.stop()
-
-_handle_payment_return()
 
 render_user_sidebar()
 
