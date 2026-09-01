@@ -182,4 +182,16 @@ def render() -> None:
     )
     st.write("Database:", "✅ Connected")
     st.write("Authentication:", "✅ Active")
-    st.write("Stripe payments:", "✅ Sandbox")
+
+    stripe_key = os.getenv("STRIPE_SECRET_KEY", "").strip()
+
+    if stripe_key.startswith("sk_live_"):
+        stripe_status = "🟢 Live"
+    elif stripe_key.startswith("sk_test_"):
+        stripe_status = "✅ Sandbox"
+    elif stripe_key:
+        stripe_status = "⚠️ Invalid key"
+    else:
+        stripe_status = "⚠️ Not configured"
+
+    st.write("Stripe payments:", stripe_status)

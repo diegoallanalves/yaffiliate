@@ -13,7 +13,7 @@ class StripeService:
     """Provide Stripe payment operations for YAffiliate."""
 
     def __init__(self) -> None:
-        """Configure Stripe using the global multi-currency Price."""
+        """Configure Stripe using the configured multi-currency Price."""
 
         load_dotenv()
 
@@ -23,9 +23,13 @@ class StripeService:
         if not secret_key:
             raise ValueError("STRIPE_SECRET_KEY is not configured.")
 
-        if not secret_key.startswith("sk_test_"):
+        if not (
+            secret_key.startswith("sk_test_")
+            or secret_key.startswith("sk_live_")
+        ):
             raise ValueError(
-                "YAFFiliate currently requires a Stripe test-mode secret key."
+                "STRIPE_SECRET_KEY must be a valid Stripe test or live "
+                "secret key."
             )
 
         if not price_id:
@@ -39,6 +43,7 @@ class StripeService:
         stripe.api_key = secret_key
         self.client = stripe
         self.price_id = price_id
+        self.mode = "live" if secret_key.startswith("sk_live_") else "test"
 
     def test_connection(self) -> dict[str, Any]:
         """Verify that YAffiliate can communicate with Stripe."""
@@ -49,6 +54,7 @@ class StripeService:
             "id": account.id,
             "country": getattr(account, "country", None),
             "email": getattr(account, "email", None),
+            "mode": self.mode,
         }
 
     def get_price(self) -> dict[str, Any]:
@@ -63,10 +69,6 @@ class StripeService:
             getattr(price, "currency", "") or ""
         ).lower()
 
-        # Stripe's Python SDK does not consistently expose currency_options
-        # as a normal mapping on retrieved Price objects. The application's
-        # Checkout flow does not need to enumerate those options: Stripe uses
-        # the multi-currency Price itself when creating Checkout.
         return {
             "id": getattr(price, "id", None),
             "active": bool(getattr(price, "active", False)),
@@ -74,6 +76,7 @@ class StripeService:
             "unit_amount": getattr(price, "unit_amount", None),
             "interval": interval,
             "product": getattr(price, "product", None),
+            "mode": self.mode,
         }
 
     def create_checkout_session(
@@ -86,10 +89,6 @@ class StripeService:
     ) -> dict[str, Any]:
         """
         Create a Stripe Checkout Session for YAffiliate Pro.
-
-        The configured Stripe Price contains the supported currency options.
-        YAffiliate does not expose a customer-facing currency selector and
-        does not force a currency in the Checkout Session.
 
         Creating Checkout does not activate Pro access. A completed Stripe
         subscription must be verified before YAffiliate grants Pro.
