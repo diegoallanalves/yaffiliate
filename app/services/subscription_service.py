@@ -33,13 +33,48 @@ class SubscriptionService:
         return response.data[0] if response.data else None
 
     def is_pro(self, user_id: str) -> bool:
+        """Return True when the user currently has YAffiliate Pro access."""
+
         subscription = self.get_subscription(user_id)
         if not subscription:
             return False
 
         plan = str(subscription.get("plan") or "").strip().lower()
         status = str(subscription.get("status") or "").strip().lower()
-        return plan == "pro" and status in self.ACTIVE_STATUSES
+        access_type = str(
+            subscription.get("access_type") or "subscription"
+        ).strip().lower()
+
+        if plan != "pro":
+            return False
+
+        # Standard Stripe recurring subscription.
+        if access_type == "subscription":
+            return status in self.ACTIVE_STATUSES
+
+        # Fixed-term access, such as a 30-day Pix payment.
+        if access_type == "fixed_term":
+            expires_at = subscription.get("access_expires_at")
+
+            if not expires_at:
+                return False
+
+            try:
+                expiration = datetime.fromisoformat(
+                    str(expires_at).replace("Z", "+00:00")
+                )
+
+                if expiration.tzinfo is None:
+                    expiration = expiration.replace(tzinfo=timezone.utc)
+
+                return (
+                        status in self.ACTIVE_STATUSES
+                        and expiration > datetime.now(timezone.utc)
+                )
+            except (TypeError, ValueError):
+                return False
+
+        return False
 
     @staticmethod
     def _stripe_id(value: Any) -> str | None:
