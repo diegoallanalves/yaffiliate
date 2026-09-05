@@ -9,7 +9,6 @@ from dataclasses import asdict
 import streamlit as st
 
 from app.collectors.hotmart_collector import HotmartCollector
-from app.services.auth_service import AuthService
 from app.components.layout import page_header
 from app.models.discovery_product import DiscoveryProduct
 from app.repositories.campaign_repository import CampaignRepository
@@ -20,6 +19,7 @@ from app.services.campaign_generator_service import (
 from app.services.comparison_service import ComparisonService
 from app.services.exports import ZipExporter
 from app.services.product_analysis_service import ProductAnalysisService
+from app.services.translation_service import t
 
 
 collector = HotmartCollector()
@@ -33,42 +33,51 @@ zip_exporter = ZipExporter()
 def render() -> None:
     """Render the quick campaign generator."""
 
+    # ---------------------------------------------------------
+    # Page header
+    # ---------------------------------------------------------
     page_header(
-        "START HERE",
-        "From One Product to a Complete Marketing Campaign in Minutes.",
-        (
-            "Search for a product, generate the campaign, "
-            "and download the complete ZIP package."
-        ),
+        t("qg_eyebrow"),
+        t("qg_title"),
+        t("qg_subtitle"),
     )
 
     st.info(
-        "Search any product and YAffiliate will create a complete "
-        "marketing campaign in minutes."
+        t("qg_info")
     )
 
+    # ---------------------------------------------------------
+    # Product search
+    # ---------------------------------------------------------
     product_query = st.text_input(
-        "What product do you want to promote?",
+        t("qg_product_question"),
         value="",
-        placeholder="Examples: Excel Masterclass, English Course",
+        placeholder=t("qg_product_placeholder"),
         key="quick_generate_product_query",
     )
 
     generate = st.button(
-        "🚀 Generate My Campaign",
+        t("qg_generate"),
         type="primary",
         key="quick_generate_button",
     )
 
+    # ---------------------------------------------------------
+    # Generate campaign
+    # ---------------------------------------------------------
     if generate:
         cleaned_query = product_query.strip()
 
         if not cleaned_query:
-            st.error("Enter a product name.")
+            st.error(
+                t("qg_enter_product")
+            )
             return
 
         try:
-            with st.spinner("Generating campaign..."):
+            with st.spinner(
+                t("qg_generating")
+            ):
                 products = collector.search_products(
                     keyword=cleaned_query,
                     country_code="BR",
@@ -83,10 +92,13 @@ def render() -> None:
                         cleaned_query
                     )
                     products = [selected_product]
+
                 else:
                     selected_product = products[0]
 
-                comparison = comparison_service.compare(products)
+                comparison = comparison_service.compare(
+                    products
+                )
 
                 selected_comparison = next(
                     (
@@ -105,6 +117,12 @@ def render() -> None:
                     comparison=selected_comparison,
                 )
 
+                # -------------------------------------------------
+                # IMPORTANT:
+                # These values are internal generation parameters.
+                # They are deliberately kept stable so translating
+                # the UI does not change campaign logic.
+                # -------------------------------------------------
                 campaign = campaign_service.generate(
                     product=selected_product,
                     analysis=analysis,
@@ -132,10 +150,14 @@ def render() -> None:
                     ensure_ascii=False,
                 )
 
-                user_id = st.session_state.get("auth_user_id")
+                user_id = st.session_state.get(
+                    "auth_user_id"
+                )
 
                 if not user_id:
-                    st.error("Your login session has expired. Please sign in again.")
+                    st.error(
+                        t("qg_session_expired")
+                    )
                     return
 
                 response = campaign_repository.save_campaign(
@@ -150,34 +172,54 @@ def render() -> None:
                     else None
                 )
 
-            st.session_state["quick_generated_campaign"] = campaign
-            st.session_state["quick_generated_zip"] = campaign_zip
+            # -----------------------------------------------------
+            # Store generated campaign in Streamlit session
+            # -----------------------------------------------------
+            st.session_state[
+                "quick_generated_campaign"
+            ] = campaign
+
+            st.session_state[
+                "quick_generated_zip"
+            ] = campaign_zip
+
             st.session_state[
                 "quick_generated_custom_product"
             ] = used_custom_product
+
             st.session_state[
                 "quick_generated_campaign_id"
             ] = campaign_id
 
-            st.success("Marketing kit generated and saved.")
+            st.success(
+                t("qg_generated")
+            )
 
         except Exception as error:
             st.exception(error)
             return
 
+    # ---------------------------------------------------------
+    # Load generated campaign from session
+    # ---------------------------------------------------------
     campaign = st.session_state.get(
         "quick_generated_campaign"
     )
+
     campaign_zip = st.session_state.get(
         "quick_generated_zip"
     )
+
     used_custom_product = bool(
         st.session_state.get(
             "quick_generated_custom_product"
         )
     )
 
-    if not isinstance(campaign, CampaignPackage):
+    if not isinstance(
+        campaign,
+        CampaignPackage,
+    ):
         _render_deliverables()
         return
 
@@ -193,6 +235,8 @@ def _build_custom_product(
 ) -> DiscoveryProduct:
     """Create a temporary custom product for quick generation."""
 
+    # These are internal fallback values.
+    # They should not change when the interface language changes.
     return DiscoveryProduct(
         product_name=product_name,
         network_name="Custom Product",
@@ -223,19 +267,34 @@ def _render_deliverables() -> None:
     """Show what the generated marketing kit includes."""
 
     st.divider()
-    st.subheader("Your marketing kit will include")
+
+    st.subheader(
+        t("qg_kit_include")
+    )
 
     left_column, right_column = st.columns(2)
 
     with left_column:
-        st.markdown("✅ SEO article")
-        st.markdown("✅ Landing page")
-        st.markdown("✅ Email sequence")
+        st.markdown(
+            f"✅ {t('qg_seo_article')}"
+        )
+        st.markdown(
+            f"✅ {t('qg_landing_page')}"
+        )
+        st.markdown(
+            f"✅ {t('qg_email_sequence')}"
+        )
 
     with right_column:
-        st.markdown("✅ Google Ads")
-        st.markdown("✅ Campaign summary")
-        st.markdown("✅ Complete ZIP package")
+        st.markdown(
+            f"✅ {t('qg_google_ads')}"
+        )
+        st.markdown(
+            f"✅ {t('qg_campaign_summary')}"
+        )
+        st.markdown(
+            f"✅ {t('qg_zip_package')}"
+        )
 
 
 def _render_result(
@@ -247,52 +306,101 @@ def _render_result(
     """Render the generated campaign result."""
 
     st.divider()
-    st.subheader("Marketing Kit Ready")
 
+    st.subheader(
+        t("qg_ready")
+    )
+
+    # ---------------------------------------------------------
+    # Product-data warning
+    # ---------------------------------------------------------
     if used_custom_product:
         st.warning(
-            "This campaign used estimated placeholder product data "
-            "because the product was not found in the catalogue."
+            t("qg_placeholder_warning")
         )
 
-    st.write(f"**Product:** {campaign.product_name}")
-    st.write(f"**Campaign:** {campaign.campaign_name}")
+    # ---------------------------------------------------------
+    # Campaign information
+    # ---------------------------------------------------------
+    st.write(
+        f"**{t('qg_product')}:** "
+        f"{campaign.product_name}"
+    )
 
+    st.write(
+        f"**{t('qg_campaign')}:** "
+        f"{campaign.campaign_name}"
+    )
+
+    # ---------------------------------------------------------
+    # Campaign metrics
+    # ---------------------------------------------------------
     metric_1, metric_2, metric_3 = st.columns(3)
 
     metric_1.metric(
-        "Files ready",
+        t("qg_files_ready"),
         campaign.asset_count,
     )
+
     metric_2.metric(
-        "Marketing content",
-        f"{campaign.total_estimated_words:,} words",
+        t("qg_marketing_content"),
+        (
+            f"{campaign.total_estimated_words:,} "
+            f"{t('qg_words')}"
+        ),
     )
+
     metric_3.metric(
-        "Average quality",
+        t("qg_average_quality"),
         f"{campaign.average_quality_score:.1f}/100",
     )
 
-    st.markdown("### Included")
+    # ---------------------------------------------------------
+    # Included assets
+    # ---------------------------------------------------------
+    st.markdown(
+        f"### {t('qg_included')}"
+    )
 
     included_columns = st.columns(4)
-    included_columns[0].success("SEO Article")
-    included_columns[1].success("Landing Page")
-    included_columns[2].success("Email Sequence")
-    included_columns[3].success("Google Ads")
 
+    included_columns[0].success(
+        t("qg_seo_article")
+    )
+
+    included_columns[1].success(
+        t("qg_landing_page")
+    )
+
+    included_columns[2].success(
+        t("qg_email_sequence")
+    )
+
+    included_columns[3].success(
+        t("qg_google_ads")
+    )
+
+    # ---------------------------------------------------------
+    # Saved campaign
+    # ---------------------------------------------------------
     campaign_id = st.session_state.get(
         "quick_generated_campaign_id"
     )
 
     if campaign_id:
         st.caption(
-            f"Saved Campaign ID: {campaign_id}"
+            f"{t('qg_saved_id')}: {campaign_id}"
         )
 
-    if not isinstance(campaign_zip, bytes):
+    # ---------------------------------------------------------
+    # ZIP download
+    # ---------------------------------------------------------
+    if not isinstance(
+        campaign_zip,
+        bytes,
+    ):
         st.error(
-            "The ZIP file is not available. Generate the kit again."
+            t("qg_zip_unavailable")
         )
         return
 
@@ -301,7 +409,7 @@ def _render_result(
     )
 
     st.download_button(
-        label="📦 Download My Complete Marketing Kit",
+        label=t("qg_download"),
         data=campaign_zip,
         file_name=f"{safe_name}.zip",
         mime="application/zip",
@@ -310,12 +418,13 @@ def _render_result(
     )
 
     st.caption(
-        "The ZIP includes the campaign assets and summary files "
-        "created by YAffiliate."
+        t("qg_zip_caption")
     )
 
 
-def _safe_file_name(value: str) -> str:
+def _safe_file_name(
+    value: str,
+) -> str:
     """Convert a campaign name into a safe ZIP file name."""
 
     cleaned_value = re.sub(
@@ -330,4 +439,7 @@ def _safe_file_name(value: str) -> str:
         cleaned_value,
     ).strip("_")
 
-    return cleaned_value or "yaffiliate_marketing_kit"
+    return (
+        cleaned_value
+        or "yaffiliate_marketing_kit"
+    )
