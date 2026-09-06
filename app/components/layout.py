@@ -11,6 +11,7 @@ from app.services.translation_service import (
     get_language_name,
     set_language,
     t,
+    translate_literal,
 )
 
 
@@ -278,6 +279,10 @@ def page_header(
     subtitle: str,
 ) -> None:
     """Render the shared page header."""
+
+    eyebrow = translate_literal(eyebrow)
+    title = translate_literal(title)
+    subtitle = translate_literal(subtitle)
 
     st.markdown(
         f"""
