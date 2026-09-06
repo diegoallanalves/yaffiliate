@@ -20,6 +20,21 @@ class StripeService:
         secret_key = os.getenv("STRIPE_SECRET_KEY", "").strip()
         price_id = os.getenv("STRIPE_PRICE_ID", "").strip()
 
+        # ---------------------------------------------------------
+        # Application URL
+        # ---------------------------------------------------------
+        # Local development:
+        # APP_URL=http://localhost:8501
+        #
+        # Production:
+        # APP_URL=https://yaffiliate-ai.streamlit.app
+        #
+        # If APP_URL is missing, production is used as a safe default.
+        self.app_url = os.getenv(
+            "APP_URL",
+            "https://yaffiliate-ai.streamlit.app",
+        ).strip().rstrip("/")
+
         if not secret_key:
             raise ValueError("STRIPE_SECRET_KEY is not configured.")
 
@@ -38,10 +53,20 @@ class StripeService:
                 "Stripe Price ID."
             )
 
+        if not self.app_url.startswith(("http://", "https://")):
+            raise ValueError(
+                "APP_URL must start with http:// or https://."
+            )
+
         stripe.api_key = secret_key
+
         self.client = stripe
         self.price_id = price_id
-        self.mode = "live" if secret_key.startswith("sk_live_") else "test"
+        self.mode = (
+            "live"
+            if secret_key.startswith("sk_live_")
+            else "test"
+        )
 
     def test_connection(self) -> dict[str, Any]:
         """Verify that YAffiliate can communicate with Stripe."""
@@ -61,7 +86,12 @@ class StripeService:
         price = self.client.Price.retrieve(self.price_id)
 
         recurring = getattr(price, "recurring", None)
-        interval = getattr(recurring, "interval", None) if recurring else None
+
+        interval = (
+            getattr(recurring, "interval", None)
+            if recurring
+            else None
+        )
 
         default_currency = str(
             getattr(price, "currency", "") or ""
@@ -82,18 +112,16 @@ class StripeService:
         *,
         user_id: str,
         email: str,
-        success_url: str = (
-            "https://yaffiliate-ai.streamlit.app/?payment=success"
-        ),
-        cancel_url: str = (
-            "https://yaffiliate-ai.streamlit.app/?payment=cancelled"
-        ),
+        success_url: str | None = None,
+        cancel_url: str | None = None,
     ) -> dict[str, Any]:
         """
         Create a Stripe Checkout Session for YAffiliate Pro.
 
-        Creating Checkout does not activate Pro access. A completed Stripe
-        subscription must be verified before YAffiliate grants Pro.
+        Creating Checkout does not activate Pro access.
+
+        A completed Stripe subscription must be verified before
+        YAffiliate grants Pro access.
         """
 
         user_id = user_id.strip()
@@ -109,25 +137,57 @@ class StripeService:
                 "An authenticated user email is required to create checkout."
             )
 
+        # ---------------------------------------------------------
+        # Environment-aware redirect URLs
+        # ---------------------------------------------------------
+        # Local:
+        # http://localhost:8501/?payment=success
+        #
+        # Production:
+        # https://yaffiliate-ai.streamlit.app/?payment=success
+        # ---------------------------------------------------------
+
+        if success_url is None:
+            success_url = f"{self.app_url}/?payment=success"
+
+        if cancel_url is None:
+            cancel_url = f"{self.app_url}/?payment=cancelled"
+
         session = self.client.checkout.Session.create(
             mode="subscription",
+
             customer_email=email,
-            line_items=[{"price": self.price_id, "quantity": 1}],
+
+            line_items=[
+                {
+                    "price": self.price_id,
+                    "quantity": 1,
+                }
+            ],
+
             success_url=(
-                success_url + "&session_id={CHECKOUT_SESSION_ID}"
+                success_url
+                + "&session_id={CHECKOUT_SESSION_ID}"
             ),
+
             cancel_url=cancel_url,
+
+            # Connect Stripe Checkout to the authenticated
+            # YAffiliate user.
             client_reference_id=user_id,
+
             metadata={
                 "yaffiliate_user_id": user_id,
                 "plan": "pro",
             },
+
             subscription_data={
                 "metadata": {
                     "yaffiliate_user_id": user_id,
                     "plan": "pro",
                 }
             },
+
             allow_promotion_codes=True,
         )
 
@@ -139,15 +199,23 @@ class StripeService:
             "customer": getattr(session, "customer", None),
         }
 
-    def retrieve_checkout_session(self, session_id: str) -> Any:
+    def retrieve_checkout_session(
+        self,
+        session_id: str,
+    ) -> Any:
         """Retrieve Checkout and expand its customer and subscription."""
 
         session_id = session_id.strip()
 
         if not session_id:
-            raise ValueError("Checkout Session ID is required.")
+            raise ValueError(
+                "Checkout Session ID is required."
+            )
 
         return self.client.checkout.Session.retrieve(
             session_id,
-            expand=["subscription", "customer"],
+            expand=[
+                "subscription",
+                "customer",
+            ],
         )

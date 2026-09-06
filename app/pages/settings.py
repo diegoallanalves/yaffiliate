@@ -13,17 +13,63 @@ from app.services.subscription_service import SubscriptionService
 from app.services.translation_service import ui
 
 
-def redirect_to_checkout(checkout_url: str) -> None:
-    """Redirect the browser directly to Stripe Checkout."""
+CHECKOUT_URL_KEY = "stripe_checkout_url"
+CHECKOUT_USER_KEY = "stripe_checkout_user_id"
 
-    st.markdown(
-        f"""
-        <meta http-equiv="refresh" content="0; url={checkout_url}">
-        """,
-        unsafe_allow_html=True,
-    )
 
-    st.stop()
+def _clear_checkout_session() -> None:
+    """Remove a previously prepared Stripe Checkout URL."""
+
+    st.session_state.pop(CHECKOUT_URL_KEY, None)
+    st.session_state.pop(CHECKOUT_USER_KEY, None)
+
+
+def _get_checkout_url(
+    user_id: str,
+    email: str,
+) -> str | None:
+    """
+    Return a Stripe Checkout URL for the authenticated free user.
+
+    The URL is cached in Streamlit session state so normal reruns do not
+    create a new Stripe Checkout Session every time.
+    """
+
+    cached_user_id = str(
+        st.session_state.get(CHECKOUT_USER_KEY, "") or ""
+    ).strip()
+
+    cached_url = str(
+        st.session_state.get(CHECKOUT_URL_KEY, "") or ""
+    ).strip()
+
+    if cached_url and cached_user_id == user_id:
+        return cached_url
+
+    try:
+        checkout = StripeService().create_checkout_session(
+            user_id=user_id,
+            email=email,
+        )
+
+        checkout_url = str(
+            checkout.get("url", "") or ""
+        ).strip()
+
+        if not checkout_url:
+            return None
+
+        st.session_state[CHECKOUT_URL_KEY] = checkout_url
+        st.session_state[CHECKOUT_USER_KEY] = user_id
+
+        return checkout_url
+
+    except Exception as exc:
+        st.error(
+            f"Unable to create checkout: {exc}"
+        )
+        return None
+
 
 def render() -> None:
     """Render workspace, subscription, and integration settings."""
@@ -34,7 +80,10 @@ def render() -> None:
     page_header(
         "Workspace controls",
         "Manage your YAffiliate workspace and subscription.",
-        "API keys and secrets remain securely stored outside the application.",
+        (
+            "API keys and secrets remain securely stored "
+            "outside the application."
+        ),
     )
 
     # ---------------------------------------------------------
@@ -45,12 +94,23 @@ def render() -> None:
     with st.form("settings"):
         name = st.text_input(
             ui("Workspace name"),
-            get_setting("workspace_name", "YAffiliate Workspace"),
+            get_setting(
+                "workspace_name",
+                "YAffiliate Workspace",
+            ),
         )
 
-        currency_options = ["BRL", "USD", "EUR", "GBP"]
+        currency_options = [
+            "BRL",
+            "USD",
+            "EUR",
+            "GBP",
+        ]
 
-        saved_currency = get_setting("currency", "BRL")
+        saved_currency = get_setting(
+            "currency",
+            "BRL",
+        )
 
         currency_index = (
             currency_options.index(saved_currency)
@@ -72,32 +132,62 @@ def render() -> None:
         budget = st.number_input(
             ui("Default monthly testing budget"),
             min_value=0.0,
-            value=float(get_setting("monthly_budget", "1000")),
+            value=float(
+                get_setting(
+                    "monthly_budget",
+                    "1000",
+                )
+            ),
             step=100.0,
         )
 
-        ok = st.form_submit_button(ui("Save settings"))
+        save_settings = st.form_submit_button(
+            ui("Save settings")
+        )
 
-    if ok:
-        upsert_setting("workspace_name", name)
-        upsert_setting("currency", currency)
-        upsert_setting("monthly_budget", str(budget))
+    if save_settings:
+        upsert_setting(
+            "workspace_name",
+            name,
+        )
 
-        st.success(ui("Settings saved."))
+        upsert_setting(
+            "currency",
+            currency,
+        )
+
+        upsert_setting(
+            "monthly_budget",
+            str(budget),
+        )
+
+        st.success(
+            ui("Settings saved.")
+        )
 
     # ---------------------------------------------------------
     # YAFFILIATE PRO
     # ---------------------------------------------------------
     st.divider()
 
-    st.subheader(ui("💳 YAffiliate Pro"))
+    st.subheader(
+        ui("💳 YAffiliate Pro")
+    )
 
     user_id = str(
-        st.session_state.get("auth_user_id", "") or ""
+        st.session_state.get(
+            "auth_user_id",
+            "",
+        )
+        or ""
     ).strip()
 
     email = str(
-        st.session_state.get("auth_user_email", "") or ""
+        st.session_state.get(
+            "auth_user_email",
+            "",
+        )
+        or ""
     ).strip()
 
     subscription = None
@@ -105,35 +195,54 @@ def render() -> None:
 
     if user_id:
         try:
-            subscription = SubscriptionService().get_subscription(user_id)
+            subscription = (
+                SubscriptionService()
+                .get_subscription(user_id)
+            )
+
         except Exception as exc:
             subscription_error = str(exc)
 
     is_pro = bool(
         subscription
         and subscription.get("plan") == "pro"
-        and subscription.get("status") in {"active", "trialing"}
+        and subscription.get("status")
+        in {
+            "active",
+            "trialing",
+        }
     )
 
     # ---------------------------------------------------------
-    # CURRENT SUBSCRIPTION STATUS
+    # CURRENT PLAN
     # ---------------------------------------------------------
     if is_pro:
-        st.success(ui("Current plan: YAffiliate Pro"))
+        st.success(
+            ui(
+                "Current plan: YAffiliate Pro"
+            )
+        )
 
         st.caption(
-            f"Subscription status: "
+            "Subscription status: "
             f"{subscription.get('status', 'active')}"
         )
 
         if subscription.get("currency"):
             st.caption(
-                f"Billing currency: "
+                "Billing currency: "
                 f"{str(subscription['currency']).upper()}"
             )
 
+        # A Pro user no longer needs an old Checkout URL.
+        _clear_checkout_session()
+
     else:
-        st.write(ui("**Current plan:** Free"))
+        st.write(
+            ui(
+                "**Current plan:** Free"
+            )
+        )
 
         st.info(
             ui(
@@ -144,7 +253,7 @@ def render() -> None:
         )
 
     # ---------------------------------------------------------
-    # DATABASE ERROR
+    # SUBSCRIPTION DATABASE ERROR
     # ---------------------------------------------------------
     if subscription_error:
         st.warning(
@@ -153,51 +262,40 @@ def render() -> None:
         )
 
     # ---------------------------------------------------------
-    # UPGRADE TO PRO
+    # UPGRADE
     # ---------------------------------------------------------
     if not is_pro:
 
-        if st.button(
-            ui("🚀 Upgrade to YAffiliate Pro"),
-            type="primary",
-            use_container_width=True,
-        ):
+        if not user_id or not email:
+            st.error(
+                ui(
+                    "You must be signed in before starting "
+                    "a subscription."
+                )
+            )
 
-            # User must be authenticated before creating
-            # a Stripe Checkout Session.
-            if not user_id or not email:
-                st.error(
+        else:
+            checkout_url = _get_checkout_url(
+                user_id=user_id,
+                email=email,
+            )
+
+            if checkout_url:
+                st.link_button(
                     ui(
-                        "You must be signed in before starting "
-                        "a subscription."
-                    )
+                        "🚀 Upgrade to YAffiliate Pro"
+                    ),
+                    checkout_url,
+                    type="primary",
+                    use_container_width=True,
                 )
 
             else:
-                try:
-                    # Create Stripe Checkout Session.
-                    checkout = StripeService().create_checkout_session(
-                        user_id=user_id,
-                        email=email,
+                st.error(
+                    ui(
+                        "Stripe did not return a Checkout URL."
                     )
-
-                    checkout_url = checkout.get("url")
-
-                    if checkout_url:
-                        # Immediately send the customer to Stripe.
-                        redirect_to_checkout(checkout_url)
-
-                    else:
-                        st.error(
-                            ui(
-                                "Stripe did not return a Checkout URL."
-                            )
-                        )
-
-                except Exception as exc:
-                    st.error(
-                        f"Unable to create checkout: {exc}"
-                    )
+                )
 
         st.caption(
             ui(
@@ -211,14 +309,18 @@ def render() -> None:
     # ---------------------------------------------------------
     st.divider()
 
-    st.subheader(ui("Integration status"))
+    st.subheader(
+        ui("Integration status")
+    )
 
     # OpenAI
     st.write(
         ui("OpenAI:"),
-        "✅ Configured"
-        if os.getenv("OPENAI_API_KEY")
-        else "⚠️ Not configured",
+        (
+            "✅ Configured"
+            if os.getenv("OPENAI_API_KEY")
+            else "⚠️ Not configured"
+        ),
     )
 
     # Database
@@ -239,17 +341,25 @@ def render() -> None:
         "",
     ).strip()
 
-    if stripe_key.startswith("sk_live_"):
+    if stripe_key.startswith(
+        "sk_live_"
+    ):
         stripe_status = "🟢 Live"
 
-    elif stripe_key.startswith("sk_test_"):
+    elif stripe_key.startswith(
+        "sk_test_"
+    ):
         stripe_status = "✅ Sandbox"
 
     elif stripe_key:
-        stripe_status = "⚠️ Invalid key"
+        stripe_status = (
+            "⚠️ Invalid key"
+        )
 
     else:
-        stripe_status = "⚠️ Not configured"
+        stripe_status = (
+            "⚠️ Not configured"
+        )
 
     st.write(
         ui("Stripe payments:"),
