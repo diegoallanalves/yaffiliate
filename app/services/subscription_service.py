@@ -71,6 +71,15 @@ class SubscriptionService:
         # ---------------------------------------------------------
         # Recurring Stripe subscription
         # ---------------------------------------------------------
+        #
+        # IMPORTANT:
+        # If cancel_at_period_end is True, Stripe normally keeps the
+        # subscription status as "active" until the paid billing period
+        # actually ends.
+        #
+        # Therefore the customer correctly keeps Pro access until Stripe
+        # later changes the subscription status to "canceled".
+        # ---------------------------------------------------------
         if access_type == "subscription":
             return status in self.ACTIVE_STATUSES
 
@@ -213,14 +222,41 @@ class SubscriptionService:
             getattr(subscription, "status", "") or ""
         ).lower()
 
+        # ---------------------------------------------------------
+        # Build the Supabase subscription record.
+        # ---------------------------------------------------------
         record = {
             "user_id": user_id,
             "plan": "pro",
             "status": self._database_status(stripe_status),
 
-            # This record represents a recurring subscription.
+            # Recurring Stripe subscription.
             "access_type": "subscription",
             "access_expires_at": None,
+
+            # -----------------------------------------------------
+            # Cancellation handling
+            # -----------------------------------------------------
+            #
+            # False:
+            # Subscription is expected to renew normally.
+            #
+            # True:
+            # Customer requested cancellation, but Stripe is keeping
+            # the subscription active until the current paid period
+            # finishes.
+            #
+            # We DO NOT remove Pro access merely because this is True.
+            # Stripe's subscription status remains the authority for
+            # whether recurring Pro access is currently active.
+            # -----------------------------------------------------
+            "cancel_at_period_end": bool(
+                getattr(
+                    subscription,
+                    "cancel_at_period_end",
+                    False,
+                )
+            ),
 
             "stripe_customer_id": self._stripe_id(
                 getattr(
@@ -229,12 +265,14 @@ class SubscriptionService:
                     None,
                 )
             ),
+
             "stripe_subscription_id": subscription_id,
             "stripe_checkout_session_id": checkout_session_id,
 
             "country": country,
             "currency": currency,
 
+            # End of the currently paid Stripe billing period.
             "current_period_end": self._iso_from_unix(
                 getattr(
                     subscription,
@@ -306,6 +344,9 @@ class SubscriptionService:
             # Fixed-term access instead of recurring subscription.
             "access_type": "fixed_term",
             "access_expires_at": expires_at.isoformat(),
+
+            # Fixed-term access is not a recurring Stripe cancellation.
+            "cancel_at_period_end": False,
 
             "stripe_checkout_session_id": checkout_session_id,
 
