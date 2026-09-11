@@ -72,13 +72,12 @@ class SubscriptionService:
         # Recurring Stripe subscription
         # ---------------------------------------------------------
         #
-        # IMPORTANT:
-        # If cancel_at_period_end is True, Stripe normally keeps the
-        # subscription status as "active" until the paid billing period
-        # actually ends.
+        # If cancel_at_period_end is True, Stripe keeps the
+        # subscription active until the customer's paid billing
+        # period actually finishes.
         #
-        # Therefore the customer correctly keeps Pro access until Stripe
-        # later changes the subscription status to "canceled".
+        # Therefore YAffiliate must continue granting Pro access
+        # while Stripe still reports active/trialing.
         # ---------------------------------------------------------
         if access_type == "subscription":
             return status in self.ACTIVE_STATUSES
@@ -158,6 +157,70 @@ class SubscriptionService:
             return None
 
     @staticmethod
+    def _current_period_end(subscription: Any) -> Any:
+        """
+        Return the current Stripe billing-period end.
+
+        Stripe API versions can expose current_period_end in different
+        places. Older structures may expose it directly on Subscription,
+        while newer structures expose it on SubscriptionItem.
+        """
+
+        # ---------------------------------------------------------
+        # Older Stripe API structure
+        # ---------------------------------------------------------
+        period_end = getattr(
+            subscription,
+            "current_period_end",
+            None,
+        )
+
+        if period_end not in (None, ""):
+            return period_end
+
+        # ---------------------------------------------------------
+        # Stripe 15.x / newer API structure
+        #
+        # Subscription
+        #   -> items
+        #       -> data
+        #           -> SubscriptionItem
+        #               -> current_period_end
+        # ---------------------------------------------------------
+        items = getattr(
+            subscription,
+            "items",
+            None,
+        )
+
+        if items is None:
+            return None
+
+        if isinstance(items, dict):
+            item_data = items.get("data") or []
+        else:
+            item_data = getattr(
+                items,
+                "data",
+                None,
+            ) or []
+
+        if not item_data:
+            return None
+
+        # YAffiliate currently creates one recurring subscription item.
+        first_item = item_data[0]
+
+        if isinstance(first_item, dict):
+            return first_item.get("current_period_end")
+
+        return getattr(
+            first_item,
+            "current_period_end",
+            None,
+        )
+
+    @staticmethod
     def _database_status(stripe_status: str) -> str:
         """Translate Stripe subscription statuses to YAffiliate statuses."""
 
@@ -223,6 +286,13 @@ class SubscriptionService:
         ).lower()
 
         # ---------------------------------------------------------
+        # Determine current Stripe billing period end.
+        # ---------------------------------------------------------
+        current_period_end = self._current_period_end(
+            subscription
+        )
+
+        # ---------------------------------------------------------
         # Build the Supabase subscription record.
         # ---------------------------------------------------------
         record = {
@@ -246,7 +316,7 @@ class SubscriptionService:
             # the subscription active until the current paid period
             # finishes.
             #
-            # We DO NOT remove Pro access merely because this is True.
+            # We do NOT remove Pro access merely because this is True.
             # Stripe's subscription status remains the authority for
             # whether recurring Pro access is currently active.
             # -----------------------------------------------------
@@ -272,13 +342,14 @@ class SubscriptionService:
             "country": country,
             "currency": currency,
 
-            # End of the currently paid Stripe billing period.
+            # -----------------------------------------------------
+            # End of the customer's currently paid billing period.
+            #
+            # Stripe 15.x may expose this on SubscriptionItem rather
+            # than directly on Subscription.
+            # -----------------------------------------------------
             "current_period_end": self._iso_from_unix(
-                getattr(
-                    subscription,
-                    "current_period_end",
-                    None,
-                )
+                current_period_end
             ),
 
             "updated_at": datetime.now(
