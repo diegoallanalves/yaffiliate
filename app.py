@@ -5,10 +5,31 @@ from __future__ import annotations
 import streamlit as st
 
 from app.bootstrap import bootstrap_app
-from app.components.auth_ui import render_auth_page, render_user_sidebar
+from app.components.auth_ui import (
+    render_auth_page,
+    render_user_sidebar,
+)
 from app.components.layout import sidebar_navigation
 from app.router import render_route
 from app.services.subscription_service import SubscriptionService
+from app.services.translation_service import (
+    get_language,
+    set_language,
+)
+
+
+# ---------------------------------------------------------
+# SUPPORTED LANGUAGES
+# ---------------------------------------------------------
+
+DEFAULT_LANGUAGE = "en"
+
+SUPPORTED_LANGUAGES = {
+    "en",
+    "pt_BR",
+    "es",
+    "zh_CN",
+}
 
 
 def _query_value(name: str) -> str:
@@ -21,13 +42,44 @@ def _query_value(name: str) -> str:
     return str(value or "").strip()
 
 
+def _handle_language_return() -> None:
+    """
+    Apply the language received from the public YAffiliate website.
+
+    Supported:
+        ?lang=en
+        ?lang=pt_BR
+        ?lang=es
+        ?lang=zh_CN
+
+    Missing or unsupported languages automatically use English.
+    """
+
+    requested_language = _query_value("lang")
+
+    # If no language was supplied, use English.
+    if not requested_language:
+        requested_language = DEFAULT_LANGUAGE
+
+    # If the supplied language is unsupported, use English.
+    if requested_language not in SUPPORTED_LANGUAGES:
+        requested_language = DEFAULT_LANGUAGE
+
+    # Only update the session when necessary.
+    if requested_language != get_language():
+        set_language(requested_language)
+
+
 def _handle_payment_return() -> None:
     """Handle and verify a Stripe Checkout return."""
+
     payment = _query_value("payment").lower()
     session_id = _query_value("session_id")
 
     if payment == "cancelled":
-        st.info("Payment was cancelled. Your plan has not changed.")
+        st.info(
+            "Payment was cancelled. Your plan has not changed."
+        )
         st.query_params.clear()
         return
 
@@ -43,16 +95,20 @@ def _handle_payment_return() -> None:
         return
 
     user_id = str(
-        st.session_state.get("auth_user_id", "") or ""
+        st.session_state.get(
+            "auth_user_id",
+            "",
+        )
+        or ""
     ).strip()
 
-    # Stripe Checkout may return in a fresh Streamlit browser session.
-    # Keep the payment query parameters so verification can continue
-    # automatically after the customer signs back in.
+    # Stripe Checkout may return in a fresh Streamlit browser
+    # session. Keep the payment parameters available until
+    # the customer signs in.
     if not user_id:
         st.info(
-            "🎉 Payment received. Please sign in to finish activating "
-            "YAFFiliate Pro."
+            "🎉 Payment received. Please sign in to finish "
+            "activating YAffiliate Pro."
         )
         return
 
@@ -63,26 +119,43 @@ def _handle_payment_return() -> None:
         return
 
     try:
-        subscription = SubscriptionService().activate_from_checkout(
-            session_id=session_id,
-            expected_user_id=user_id,
+        subscription = (
+            SubscriptionService().activate_from_checkout(
+                session_id=session_id,
+                expected_user_id=user_id,
+            )
         )
 
         st.session_state[processed_key] = True
-        st.session_state.pop("stripe_checkout_url", None)
 
-        st.success("🎉 Payment verified! YAffiliate Pro is now active.")
+        st.session_state.pop(
+            "stripe_checkout_url",
+            None,
+        )
 
-        status = subscription.get("status", "active")
-        currency = subscription.get("currency")
+        st.success(
+            "🎉 Payment verified! YAffiliate Pro is now active."
+        )
+
+        status = subscription.get(
+            "status",
+            "active",
+        )
+
+        currency = subscription.get(
+            "currency",
+        )
 
         if currency:
             st.caption(
                 f"Subscription status: {status} · "
-                f"Billing currency: {str(currency).upper()}"
+                f"Billing currency: "
+                f"{str(currency).upper()}"
             )
         else:
-            st.caption(f"Subscription status: {status}")
+            st.caption(
+                f"Subscription status: {status}"
+            )
 
         st.query_params.clear()
 
@@ -91,21 +164,58 @@ def _handle_payment_return() -> None:
             "We could not verify the Stripe subscription yet. "
             "Your account has not been upgraded."
         )
+
         st.caption(str(exc))
 
 
+# =========================================================
+# APPLICATION STARTUP
+# =========================================================
+
 bootstrap_app()
 
-# Handle Stripe before authentication. If Stripe returns in a fresh
-# Streamlit session, the customer can sign in while the Checkout Session ID
+
+# ---------------------------------------------------------
+# LANGUAGE
+# ---------------------------------------------------------
+
+# Synchronize the Streamlit application with the language
+# selected on the public YAffiliate website.
+#
+# Any unsupported or missing language defaults to English.
+_handle_language_return()
+
+
+# ---------------------------------------------------------
+# STRIPE
+# ---------------------------------------------------------
+
+# Handle Stripe before authentication.
+#
+# If Stripe returns in a fresh Streamlit session, the
+# customer can sign in while the Checkout Session ID
 # remains available for secure verification.
 _handle_payment_return()
 
-if not st.session_state.get("authenticated", False):
+
+# =========================================================
+# AUTHENTICATION
+# =========================================================
+
+if not st.session_state.get(
+    "authenticated",
+    False,
+):
     render_auth_page()
     st.stop()
+
+
+# =========================================================
+# AUTHENTICATED APPLICATION
+# =========================================================
 
 render_user_sidebar()
 
 route = sidebar_navigation()
+
 render_route(route)
