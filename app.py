@@ -52,22 +52,31 @@ def _handle_language_return() -> None:
         ?lang=es
         ?lang=zh_CN
 
-    Missing or unsupported languages automatically use English.
+    The URL language parameter is a one-time handoff.
+    After it is applied, it is removed so the in-app language
+    selector can change languages normally.
     """
 
     requested_language = _query_value("lang")
 
-    # If no language was supplied, use English.
+    # No language parameter means there is nothing to import.
+    # Keep the customer's current language unchanged.
     if not requested_language:
-        requested_language = DEFAULT_LANGUAGE
+        return
 
-    # If the supplied language is unsupported, use English.
+    # Unsupported languages fall back to English.
     if requested_language not in SUPPORTED_LANGUAGES:
         requested_language = DEFAULT_LANGUAGE
 
-    # Only update the session when necessary.
+    # Apply the language received from the website.
     if requested_language != get_language():
         set_language(requested_language)
+
+    # The website-to-app language handoff has now been consumed.
+    # Remove only the language parameter so Stripe parameters
+    # or other query parameters remain untouched.
+    if "lang" in st.query_params:
+        del st.query_params["lang"]
 
 
 def _handle_payment_return() -> None:
@@ -179,10 +188,10 @@ bootstrap_app()
 # LANGUAGE
 # ---------------------------------------------------------
 
-# Synchronize the Streamlit application with the language
-# selected on the public YAffiliate website.
+# Import the language selected on the public YAffiliate website.
 #
-# Any unsupported or missing language defaults to English.
+# The URL parameter is consumed once and then removed so the
+# customer can freely change language inside the application.
 _handle_language_return()
 
 
