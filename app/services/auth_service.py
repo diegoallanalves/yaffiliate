@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
+from urllib.parse import urlencode
 
 from app.services.supabase_service import SupabaseService
+
+
+DEFAULT_APP_URL = "https://yaffiliate-ai.streamlit.app"
+
+SUPPORTED_LANGUAGES = {
+    "en",
+    "pt_BR",
+    "es",
+    "zh_CN",
+}
 
 
 class AuthService:
@@ -15,10 +27,34 @@ class AuthService:
         self.supabase = SupabaseService()
         self.client = self.supabase.client
 
+        self.app_url = os.getenv(
+            "APP_URL",
+            DEFAULT_APP_URL,
+        ).rstrip("/")
+
+    def _confirmation_redirect_url(
+        self,
+        language: str,
+    ) -> str:
+        """Build the email-confirmation return URL."""
+
+        if language not in SUPPORTED_LANGUAGES:
+            language = "en"
+
+        query = urlencode(
+            {
+                "lang": language,
+                "auth_callback": "1",
+            }
+        )
+
+        return f"{self.app_url}/?{query}"
+
     def sign_up(
         self,
         email: str,
         password: str,
+        language: str = "en",
     ) -> Any:
         """Create a new user with email and password."""
 
@@ -35,11 +71,18 @@ class AuthService:
                 "Password must contain at least 6 characters."
             )
 
+        confirmation_url = self._confirmation_redirect_url(
+            language
+        )
+
         try:
             response = self.client.auth.sign_up(
                 {
                     "email": cleaned_email,
                     "password": password,
+                    "options": {
+                        "email_redirect_to": confirmation_url,
+                    },
                 }
             )
 
@@ -64,11 +107,9 @@ class AuthService:
             raise
 
         except Exception as exc:
-            # Keep the original message for diagnosis.
             original_message = str(exc)
             message = original_message.lower()
 
-            # Handle common Supabase duplicate-user responses.
             duplicate_messages = (
                 "user already registered",
                 "already registered",
@@ -85,11 +126,10 @@ class AuthService:
                     "Please sign in instead."
                 ) from exc
 
-            # TEMPORARY DEBUGGING:
-            # Show the real Supabase error so we can identify exactly
-            # why account creation is failing.
+            # Do not expose raw Supabase/internal errors to customers.
             raise ValueError(
-                f"Supabase signup error: {original_message}"
+                "We could not create your account. "
+                "Please try again."
             ) from exc
 
     def sign_in(
