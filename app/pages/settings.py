@@ -11,14 +11,48 @@ from app.components.layout import page_header
 from app.repositories.database import get_setting, upsert_setting
 from app.services.stripe_service import StripeService
 from app.services.subscription_service import SubscriptionService
-from app.services.translation_service import ui
+from app.services.translation_service import get_language, ui
 
 
 CHECKOUT_URL_KEY = "stripe_checkout_url"
 CHECKOUT_USER_KEY = "stripe_checkout_user_id"
+CHECKOUT_PRICE_KEY = "stripe_checkout_price_id"
 
 PORTAL_URL_KEY = "stripe_portal_url"
 PORTAL_USER_KEY = "stripe_portal_user_id"
+
+
+# =============================================================
+# BILLING HELPERS
+# =============================================================
+
+def _get_billing_details() -> dict[str, str]:
+    """
+    Return the Stripe price and customer-facing price for the
+    currently selected YAffiliate language.
+
+    Portuguese (Brazil) uses BRL.
+    All other supported languages use USD.
+    """
+
+    language = get_language()
+
+    if language == "pt_BR":
+        return {
+            "currency": "BRL",
+            "display_price": "R$49.90/month",
+            "price_id": str(
+                os.getenv("STRIPE_PRICE_ID", "") or ""
+            ).strip(),
+        }
+
+    return {
+        "currency": "USD",
+        "display_price": "$9.99/month",
+        "price_id": str(
+            os.getenv("STRIPE_PRICE_ID_USD", "") or ""
+        ).strip(),
+    }
 
 
 # =============================================================
@@ -30,34 +64,74 @@ def _clear_checkout_session() -> None:
 
     st.session_state.pop(CHECKOUT_URL_KEY, None)
     st.session_state.pop(CHECKOUT_USER_KEY, None)
+    st.session_state.pop(CHECKOUT_PRICE_KEY, None)
 
 
 def _get_checkout_url(
     user_id: str,
     email: str,
+    price_id: str,
 ) -> str | None:
     """
     Return a Stripe Checkout URL for the authenticated free user.
 
-    The URL is cached in Streamlit session state so normal reruns do not
-    create a new Stripe Checkout Session every time.
+    The cached Checkout URL is tied to both the authenticated user
+    and Stripe Price. This prevents a Checkout Session created for
+    one currency from being reused after the language changes.
     """
+
+    user_id = str(user_id or "").strip()
+    email = str(email or "").strip().lower()
+    price_id = str(price_id or "").strip()
+
+    if not user_id:
+        st.error(
+            "You must be signed in before starting a subscription."
+        )
+        return None
+
+    if not email:
+        st.error(
+            "An authenticated email address is required."
+        )
+        return None
+
+    if not price_id:
+        st.error(
+            "The Stripe subscription price is not configured."
+        )
+        return None
+
+    if not price_id.startswith("price_"):
+        st.error(
+            "The configured Stripe subscription price is invalid."
+        )
+        return None
 
     cached_user_id = str(
         st.session_state.get(CHECKOUT_USER_KEY, "") or ""
+    ).strip()
+
+    cached_price_id = str(
+        st.session_state.get(CHECKOUT_PRICE_KEY, "") or ""
     ).strip()
 
     cached_url = str(
         st.session_state.get(CHECKOUT_URL_KEY, "") or ""
     ).strip()
 
-    if cached_url and cached_user_id == user_id:
+    if (
+        cached_url
+        and cached_user_id == user_id
+        and cached_price_id == price_id
+    ):
         return cached_url
 
     try:
         checkout = StripeService().create_checkout_session(
             user_id=user_id,
             email=email,
+            price_id=price_id,
         )
 
         checkout_url = str(
@@ -69,6 +143,7 @@ def _get_checkout_url(
 
         st.session_state[CHECKOUT_URL_KEY] = checkout_url
         st.session_state[CHECKOUT_USER_KEY] = user_id
+        st.session_state[CHECKOUT_PRICE_KEY] = price_id
 
         return checkout_url
 
@@ -236,9 +311,9 @@ def render() -> None:
             currency_options,
             index=currency_index,
             help=(
-                "This preference is for YAffiliate reporting. "
-                "Stripe Checkout determines the supported local "
-                "billing currency automatically."
+                "This preference is used only for YAffiliate "
+                "reporting. Subscription billing currency is "
+                "determined by the selected interface language."
             ),
         )
 
@@ -509,13 +584,20 @@ def render() -> None:
             )
         )
 
+        billing = _get_billing_details()
+
         st.info(
-            ui(
-                "Your supported local subscription price and "
-                "checkout language will be presented automatically "
-                "by Stripe."
-            )
+            f"YAFFiliate Pro — {billing['display_price']}"
         )
+
+        if billing["currency"] == "BRL":
+            st.caption(
+                "Portuguese accounts are billed in Brazilian Real (BRL)."
+            )
+        else:
+            st.caption(
+                "International accounts are billed in US Dollars (USD)."
+            )
 
     # =========================================================
     # SUBSCRIPTION DATABASE ERROR
@@ -547,16 +629,20 @@ def render() -> None:
 
         else:
 
+            billing = _get_billing_details()
+
             checkout_url = _get_checkout_url(
                 user_id=user_id,
                 email=email,
+                price_id=billing["price_id"],
             )
 
             if checkout_url:
 
                 st.link_button(
-                    ui(
-                        "🚀 Upgrade to YAffiliate Pro"
+                    (
+                        "🚀 Upgrade to YAffiliate Pro — "
+                        f"{billing['display_price']}"
                     ),
                     checkout_url,
                     type="primary",
@@ -629,6 +715,7 @@ def render() -> None:
     stripe_configured = bool(
         os.getenv("STRIPE_SECRET_KEY")
         and os.getenv("STRIPE_PRICE_ID")
+        and os.getenv("STRIPE_PRICE_ID_USD")
     )
 
     st.write(

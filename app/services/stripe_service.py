@@ -13,7 +13,7 @@ class StripeService:
     """Provide Stripe payment and billing operations for YAffiliate."""
 
     def __init__(self) -> None:
-        """Configure Stripe using the configured multi-currency Price."""
+        """Configure Stripe using the configured YAffiliate prices."""
 
         load_dotenv()
 
@@ -71,6 +71,9 @@ class StripeService:
         stripe.api_key = secret_key
 
         self.client = stripe
+
+        # STRIPE_PRICE_ID remains the default/fallback price.
+        # For YAffiliate this is the BRL subscription price.
         self.price_id = price_id
 
         self.mode = (
@@ -107,11 +110,23 @@ class StripeService:
     # PRICE
     # =============================================================
 
-    def get_price(self) -> dict[str, Any]:
-        """Retrieve the configured global YAffiliate Pro Price."""
+    def get_price(
+        self,
+        price_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Retrieve a configured YAffiliate Pro Stripe Price."""
+
+        selected_price_id = str(
+            price_id or self.price_id
+        ).strip()
+
+        if not selected_price_id.startswith("price_"):
+            raise ValueError(
+                "A valid Stripe Price ID is required."
+            )
 
         price = self.client.Price.retrieve(
-            self.price_id
+            selected_price_id
         )
 
         recurring = getattr(
@@ -176,11 +191,21 @@ class StripeService:
         *,
         user_id: str,
         email: str,
+        price_id: str | None = None,
         success_url: str | None = None,
         cancel_url: str | None = None,
     ) -> dict[str, Any]:
         """
         Create a Stripe Checkout Session for YAffiliate Pro.
+
+        A specific Stripe Price can be supplied so YAffiliate can
+        choose the correct billing currency.
+
+        Portuguese (Brazil):
+            BRL subscription price.
+
+        English / Spanish / Chinese:
+            USD subscription price.
 
         Creating Checkout does not activate Pro access.
 
@@ -188,8 +213,17 @@ class StripeService:
         YAffiliate grants Pro access.
         """
 
-        user_id = user_id.strip()
-        email = email.strip().lower()
+        user_id = str(
+            user_id or ""
+        ).strip()
+
+        email = str(
+            email or ""
+        ).strip().lower()
+
+        selected_price_id = str(
+            price_id or self.price_id
+        ).strip()
 
         if not user_id:
             raise ValueError(
@@ -201,6 +235,18 @@ class StripeService:
             raise ValueError(
                 "An authenticated user email is required "
                 "to create checkout."
+            )
+
+        if not selected_price_id:
+            raise ValueError(
+                "A Stripe Price ID is required "
+                "to create checkout."
+            )
+
+        if not selected_price_id.startswith("price_"):
+            raise ValueError(
+                "The supplied Stripe Price ID "
+                "does not appear to be valid."
             )
 
         # ---------------------------------------------------------
@@ -223,6 +269,13 @@ class StripeService:
                 f"{self.app_url}/?payment=cancelled"
             )
 
+        # ---------------------------------------------------------
+        # Create subscription Checkout Session
+        # ---------------------------------------------------------
+        # selected_price_id determines the ACTUAL currency and amount
+        # charged by Stripe. The UI text alone never determines billing.
+        # ---------------------------------------------------------
+
         session = (
             self.client.checkout.Session.create(
                 mode="subscription",
@@ -231,7 +284,7 @@ class StripeService:
 
                 line_items=[
                     {
-                        "price": self.price_id,
+                        "price": selected_price_id,
                         "quantity": 1,
                     }
                 ],
@@ -251,12 +304,14 @@ class StripeService:
                 metadata={
                     "yaffiliate_user_id": user_id,
                     "plan": "pro",
+                    "stripe_price_id": selected_price_id,
                 },
 
                 subscription_data={
                     "metadata": {
                         "yaffiliate_user_id": user_id,
                         "plan": "pro",
+                        "stripe_price_id": selected_price_id,
                     }
                 },
 
@@ -282,6 +337,7 @@ class StripeService:
                 "customer",
                 None,
             ),
+            "price_id": selected_price_id,
         }
 
     # =============================================================
@@ -296,7 +352,9 @@ class StripeService:
         Retrieve Checkout and expand its customer and subscription.
         """
 
-        session_id = session_id.strip()
+        session_id = str(
+            session_id or ""
+        ).strip()
 
         if not session_id:
             raise ValueError(
