@@ -373,33 +373,10 @@ def _render_result(
         )
 
     # -----------------------------------------------------
-    # TEMPORARY SUBSCRIPTION DEBUG
+    # VERIFY CURRENT SUBSCRIPTION STATUS
     # -----------------------------------------------------
 
-    current_user_id = str(
-        st.session_state.get(
-            "auth_user_id",
-            "",
-        )
-        or ""
-    ).strip()
-
-    current_email = str(
-        st.session_state.get(
-            "auth_user_email",
-            "",
-        )
-        or ""
-    ).strip()
-
     current_pro_status = _is_pro_user()
-
-    st.warning(
-        "DEBUG — "
-        f"Email: {current_email} | "
-        f"User ID: {current_user_id} | "
-        f"Pro: {current_pro_status}"
-    )
 
     # -----------------------------------------------------
     # FREE → PRO CONVERSION
