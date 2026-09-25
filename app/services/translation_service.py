@@ -21,6 +21,13 @@ TRANSLATIONS = {
         # General
         "language": "Language",
         "navigation": "Navigation",
+
+        # Navigation groups
+        "nav_start": "Start",
+        "nav_research": "Research",
+        "nav_create": "Create",
+        "nav_optimize": "Optimize",
+        "nav_ai_products": "AI & Products",
         "welcome": "Welcome",
         "settings": "Settings",
         "logout": "Logout",
@@ -130,6 +137,13 @@ TRANSLATIONS = {
         # Geral
         "language": "Idioma",
         "navigation": "Navegação",
+
+        # Grupos de navegação
+        "nav_start": "Começar",
+        "nav_research": "Pesquisa",
+        "nav_create": "Criar",
+        "nav_optimize": "Otimizar",
+        "nav_ai_products": "IA e Produtos",
         "welcome": "Bem-vindo",
         "settings": "Configurações",
         "logout": "Sair",
@@ -242,6 +256,13 @@ TRANSLATIONS = {
         # General
         "language": "Idioma",
         "navigation": "Navegación",
+
+        # Grupos de navegación
+        "nav_start": "Inicio",
+        "nav_research": "Investigación",
+        "nav_create": "Crear",
+        "nav_optimize": "Optimizar",
+        "nav_ai_products": "IA y Productos",
         "welcome": "Bienvenido",
         "settings": "Configuración",
         "logout": "Cerrar sesión",
@@ -354,6 +375,13 @@ TRANSLATIONS = {
         # 通用
         "language": "语言",
         "navigation": "导航",
+
+        # 导航分组
+        "nav_start": "开始",
+        "nav_research": "研究",
+        "nav_create": "创建",
+        "nav_optimize": "优化",
+        "nav_ai_products": "AI 与产品",
         "welcome": "欢迎",
         "settings": "设置",
         "logout": "退出登录",

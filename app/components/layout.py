@@ -48,7 +48,64 @@ NAV_ITEMS = [
 ]
 
 
-NAV_WIDGET_KEY = "yaffiliate_navigation"
+# ---------------------------------------------------------
+# Navigation groups
+# ---------------------------------------------------------
+# These groups organize the platform around the customer's
+# workflow instead of displaying every feature at once.
+NAV_GROUPS = [
+    (
+        "🚀",
+        "nav_start",
+        [
+            "quick_generate",
+            "dashboard",
+            "mission_center",
+        ],
+    ),
+    (
+        "🔎",
+        "nav_research",
+        [
+            "product_discovery",
+            "product_research",
+            "product_intelligence",
+            "keyword_research",
+        ],
+    ),
+    (
+        "✨",
+        "nav_create",
+        [
+            "content_studio",
+            "campaign_generator",
+            "campaign_history",
+            "landing_pages",
+            "email_marketing",
+            "seo",
+            "google_ads",
+        ],
+    ),
+    (
+        "📊",
+        "nav_optimize",
+        [
+            "portfolio_intelligence",
+            "profit_calculator",
+            "analytics",
+        ],
+    ),
+    (
+        "🤖",
+        "nav_ai_products",
+        [
+            "ai_assistant",
+            "affiliate_products",
+        ],
+    ),
+]
+
+
 PENDING_ROUTE_KEY = "_pending_route"
 LANGUAGE_WIDGET_KEY = "yaffiliate_language_selector"
 
@@ -72,29 +129,41 @@ def _is_pro_user() -> bool:
         return False
 
 
-def _build_navigation(
+def _get_nav_item(route: str):
+    """Return navigation metadata for a route."""
+
+    for item in NAV_ITEMS:
+        if item[2] == route:
+            return item
+
+    return None
+
+
+def _route_label(
+    route: str,
     is_pro: bool,
-) -> tuple[dict[str, str], dict[str, str]]:
-    """Build translated navigation labels while preserving routes."""
+) -> str:
+    """Build the customer-facing label for one route."""
 
-    nav: dict[str, str] = {}
-    route_to_label: dict[str, str] = {}
+    item = _get_nav_item(route)
 
-    for icon, translation_key, route, requires_pro in NAV_ITEMS:
+    if item is None:
+        return route
 
-        name = t(translation_key)
+    icon, translation_key, _, requires_pro = item
 
-        if requires_pro:
-            suffix = " · PRO ✓" if is_pro else " · PRO 🔒"
-        else:
-            suffix = ""
+    name = t(translation_key)
 
-        label = f"{icon} {name}{suffix}"
+    # Keep the menu visually clean.
+    # Only show a Pro badge on locked features.
+    if requires_pro and not is_pro:
+        suffix = "  🔒"
+    elif requires_pro and is_pro:
+        suffix = "  ✦"
+    else:
+        suffix = ""
 
-        nav[label] = route
-        route_to_label[route] = label
-
-    return nav, route_to_label
+    return f"{icon} {name}{suffix}"
 
 
 def _render_language_selector() -> None:
@@ -125,7 +194,7 @@ def _render_language_selector() -> None:
     if selected_language_code != get_language():
 
         # Preserve the current route before translating
-        # all customer-facing navigation labels.
+        # customer-facing navigation labels.
         current_route = st.session_state.get(
             "selected_route",
             "quick_generate",
@@ -133,14 +202,9 @@ def _render_language_selector() -> None:
 
         set_language(selected_language_code)
 
-        st.session_state[PENDING_ROUTE_KEY] = current_route
-
-        # The radio widget contains translated text, so its old
-        # value must be removed before rebuilding the navigation.
-        st.session_state.pop(
-            NAV_WIDGET_KEY,
-            None,
-        )
+        st.session_state[
+            PENDING_ROUTE_KEY
+        ] = current_route
 
         st.rerun()
 
@@ -158,9 +222,58 @@ def navigate_to(route: str) -> None:
             f"Unknown YAffiliate route: {route}"
         )
 
-    st.session_state[PENDING_ROUTE_KEY] = route
+    st.session_state[
+        PENDING_ROUTE_KEY
+    ] = route
 
     st.rerun()
+
+
+def _render_group(
+    title: str,
+    routes: list[str],
+    is_pro: bool,
+    current_route: str,
+) -> str:
+    """Render one expandable navigation group."""
+
+    group_contains_current_route = (
+        current_route in routes
+    )
+
+    selected_route = current_route
+
+    with st.expander(
+        title,
+        expanded=group_contains_current_route,
+    ):
+
+        for route in routes:
+
+            label = _route_label(
+                route,
+                is_pro,
+            )
+
+            is_current = (
+                route == current_route
+            )
+
+            button_type = (
+                "primary"
+                if is_current
+                else "secondary"
+            )
+
+            if st.button(
+                label,
+                key=f"nav_{route}",
+                use_container_width=True,
+                type=button_type,
+            ):
+                selected_route = route
+
+    return selected_route
 
 
 def sidebar_navigation() -> str:
@@ -169,9 +282,52 @@ def sidebar_navigation() -> str:
     is_pro = _is_pro_user()
 
     # ---------------------------------------------------------
-    # Sidebar branding + language
+    # Handle navigation requested by another page
     # ---------------------------------------------------------
+
+    pending_route = st.session_state.pop(
+        PENDING_ROUTE_KEY,
+        None,
+    )
+
+    if pending_route is not None:
+
+        valid_routes = {
+            item[2]
+            for item in NAV_ITEMS
+        }
+
+        if pending_route not in valid_routes:
+            raise ValueError(
+                f"Unknown YAffiliate route: {pending_route}"
+            )
+
+        st.session_state[
+            "selected_route"
+        ] = pending_route
+
+    current_route = st.session_state.get(
+        "selected_route",
+        "quick_generate",
+    )
+
+    valid_routes = {
+        item[2]
+        for item in NAV_ITEMS
+    }
+
+    if current_route not in valid_routes:
+        current_route = "quick_generate"
+
+    # ---------------------------------------------------------
+    # Sidebar
+    # ---------------------------------------------------------
+
     with st.sidebar:
+
+        # -----------------------------------------------------
+        # Branding
+        # -----------------------------------------------------
 
         st.markdown(
             f"""
@@ -181,70 +337,77 @@ def sidebar_navigation() -> str:
             unsafe_allow_html=True,
         )
 
+        # -----------------------------------------------------
+        # Language
+        # -----------------------------------------------------
+
         _render_language_selector()
 
         st.divider()
 
-    # ---------------------------------------------------------
-    # Build translated navigation AFTER language selection
-    # ---------------------------------------------------------
-    nav, route_to_label = _build_navigation(
-        is_pro
-    )
+        # -----------------------------------------------------
+        # Main navigation
+        # -----------------------------------------------------
 
-    pending_route = st.session_state.pop(
-        PENDING_ROUTE_KEY,
-        None,
-    )
+        selected_route = current_route
 
-    if pending_route is not None:
+        for (
+            group_icon,
+            group_translation_key,
+            group_routes,
+        ) in NAV_GROUPS:
 
-        if pending_route not in route_to_label:
-            raise ValueError(
-                f"Unknown YAffiliate route: {pending_route}"
+            group_title = f"{group_icon} {t(group_translation_key)}"
+
+            group_selection = _render_group(
+                title=group_title,
+                routes=group_routes,
+                is_pro=is_pro,
+                current_route=selected_route,
             )
 
-        st.session_state[
-            NAV_WIDGET_KEY
-        ] = route_to_label[pending_route]
+            if group_selection != selected_route:
+                selected_route = group_selection
+                st.session_state[
+                    "selected_route"
+                ] = selected_route
+                st.rerun()
 
-    current_label = st.session_state.get(
-        NAV_WIDGET_KEY
-    )
+        # -----------------------------------------------------
+        # Settings
+        # -----------------------------------------------------
 
-    # Language or subscription changes can alter the
-    # customer-facing label. Preserve the underlying route.
-    if current_label not in nav:
+        st.divider()
 
-        selected_route = st.session_state.get(
-            "selected_route",
-            "quick_generate",
+        settings_label = _route_label(
+            "settings",
+            is_pro,
         )
 
-        st.session_state[
-            NAV_WIDGET_KEY
-        ] = route_to_label.get(
-            selected_route,
-            route_to_label["quick_generate"],
-        )
+        if st.button(
+            settings_label,
+            key="nav_settings",
+            use_container_width=True,
+            type=(
+                "primary"
+                if selected_route == "settings"
+                else "secondary"
+            ),
+        ):
+            selected_route = "settings"
 
-    # ---------------------------------------------------------
-    # Navigation
-    # ---------------------------------------------------------
-    with st.sidebar:
+            st.session_state[
+                "selected_route"
+            ] = selected_route
 
-        selected_label = st.radio(
-            t("navigation"),
-            options=list(nav.keys()),
-            key=NAV_WIDGET_KEY,
-            label_visibility="collapsed",
-        )
+            st.rerun()
 
         st.divider()
 
         # -----------------------------------------------------
         # Subscription status
         # -----------------------------------------------------
+
         if is_pro:
 
             st.caption(
@@ -260,11 +423,10 @@ def sidebar_navigation() -> str:
         # -----------------------------------------------------
         # Beta branding
         # -----------------------------------------------------
+
         st.caption(
             t("beta_tagline")
         )
-
-    selected_route = nav[selected_label]
 
     st.session_state[
         "selected_route"
