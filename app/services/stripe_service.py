@@ -27,13 +27,13 @@ class StripeService:
         # APP_URL=http://localhost:8501
         #
         # Production:
-        # APP_URL=https://yaffiliate-ai.streamlit.app
+        # APP_URL=https://yaffiliate.streamlit.app
         #
         # If APP_URL is missing, production is used as a safe default.
         # ---------------------------------------------------------
         self.app_url = os.getenv(
             "APP_URL",
-            "https://yaffiliate-ai.streamlit.app",
+            "https://yaffiliate.streamlit.app",
         ).strip().rstrip("/")
 
         if not secret_key:
@@ -256,7 +256,7 @@ class StripeService:
         # http://localhost:8501/?payment=success
         #
         # Production:
-        # https://yaffiliate-ai.streamlit.app/?payment=success
+        # https://yaffiliate.streamlit.app/?payment=success
         # ---------------------------------------------------------
 
         if success_url is None:

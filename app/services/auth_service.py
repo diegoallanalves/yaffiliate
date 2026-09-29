@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 from app.services.supabase_service import SupabaseService
 
 
-DEFAULT_APP_URL = "https://yaffiliate-ai.streamlit.app"
+DEFAULT_APP_URL = "https://yaffiliate.streamlit.app"
 
 SUPPORTED_LANGUAGES = {
     "en",
