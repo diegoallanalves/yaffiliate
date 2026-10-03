@@ -18,6 +18,7 @@ from app.services.campaign_generator_service import (
 )
 from app.services.comparison_service import ComparisonService
 from app.services.exports import ZipExporter
+from app.services.growth_analytics_service import GrowthAnalyticsService
 from app.services.product_analysis_service import ProductAnalysisService
 from app.services.subscription_service import SubscriptionService
 from app.services.translation_service import get_language, t
@@ -56,7 +57,6 @@ def render() -> None:
     )
 
     if generate:
-
         cleaned_query = product_query.strip()
 
         if not cleaned_query:
@@ -64,9 +64,7 @@ def render() -> None:
             return
 
         try:
-
             with st.spinner(t("qg_generating")):
-
                 products = collector.search_products(
                     keyword=cleaned_query,
                     country_code="BR",
@@ -77,13 +75,10 @@ def render() -> None:
                 used_custom_product = not products
 
                 if used_custom_product:
-
                     selected_product = _build_custom_product(
                         cleaned_query
                     )
-
                     products = [selected_product]
-
                 else:
                     selected_product = products[0]
 
@@ -169,6 +164,27 @@ def render() -> None:
             st.session_state[
                 "quick_generated_campaign_id"
             ] = campaign_id
+
+            # -------------------------------------------------
+            # GROWTH ANALYTICS: CAMPAIGN GENERATED
+            # -------------------------------------------------
+            #
+            # This event is recorded only after the campaign has
+            # been successfully generated and saved.
+            #
+            # We do not store the customer's email address.
+            # -------------------------------------------------
+
+            GrowthAnalyticsService().track(
+                "campaign_generated",
+                event_page="quick_generate",
+                user_id=str(user_id),
+                metadata={
+                    "campaign_id": campaign_id,
+                    "custom_product": used_custom_product,
+                    "language": get_language(),
+                },
+            )
 
             st.success(t("qg_generated"))
 
@@ -383,7 +399,6 @@ def _render_result(
     # -----------------------------------------------------
 
     if not current_pro_status:
-
         st.divider()
 
         st.info(
@@ -401,6 +416,25 @@ def _render_result(
             use_container_width=True,
             key="quick_generate_upgrade",
         ):
+            # ---------------------------------------------
+            # GROWTH ANALYTICS: UPGRADE CLICKED
+            # ---------------------------------------------
+            #
+            # This records genuine upgrade intent.
+            # Merely viewing the paywall does not create
+            # this event.
+            # ---------------------------------------------
+
+            GrowthAnalyticsService().track(
+                "upgrade_clicked",
+                event_page="quick_generate",
+                metadata={
+                    "campaign_id": campaign_id,
+                    "language": get_language(),
+                    "display_price": pro_price,
+                },
+            )
+
             navigate_to("settings")
 
         st.caption(

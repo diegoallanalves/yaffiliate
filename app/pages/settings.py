@@ -28,8 +28,7 @@ PORTAL_USER_KEY = "stripe_portal_user_id"
 
 def _get_billing_details() -> dict[str, str]:
     """
-    Return the Stripe price and customer-facing price for the
-    currently selected YAffiliate language.
+    Return Stripe billing details for the selected language.
 
     Portuguese (Brazil) uses BRL.
     All other supported languages use USD.
@@ -72,13 +71,7 @@ def _get_checkout_url(
     email: str,
     price_id: str,
 ) -> str | None:
-    """
-    Return a Stripe Checkout URL for the authenticated free user.
-
-    The cached Checkout URL is tied to both the authenticated user
-    and Stripe Price. This prevents a Checkout Session created for
-    one currency from being reused after the language changes.
-    """
+    """Create or return a Stripe Checkout URL."""
 
     user_id = str(user_id or "").strip()
     email = str(email or "").strip().lower()
@@ -169,13 +162,7 @@ def _get_portal_url(
     user_id: str,
     customer_id: str,
 ) -> str | None:
-    """
-    Create or return a Stripe Customer Portal URL.
-
-    The Stripe Customer ID comes from the authenticated user's
-    subscription record in Supabase. It is never supplied manually
-    by the customer.
-    """
+    """Create or return a Stripe Customer Portal URL."""
 
     user_id = str(user_id or "").strip()
     customer_id = str(customer_id or "").strip()
@@ -442,20 +429,12 @@ def render() -> None:
             f"Subscription status: {status.title()}"
         )
 
-        # -----------------------------------------------------
-        # BILLING CURRENCY
-        # -----------------------------------------------------
-
         if subscription.get("currency"):
 
             st.caption(
                 "Billing currency: "
                 f"{str(subscription['currency']).upper()}"
             )
-
-        # -----------------------------------------------------
-        # CURRENT PERIOD END
-        # -----------------------------------------------------
 
         period_end = _format_subscription_date(
             subscription.get(
@@ -518,8 +497,6 @@ def render() -> None:
             or "subscription"
         ).strip().lower()
 
-        # Only recurring Stripe subscriptions have a Stripe
-        # Customer Portal.
         if (
             access_type == "subscription"
             and stripe_customer_id
@@ -566,7 +543,6 @@ def render() -> None:
                 )
             )
 
-        # A Pro user no longer needs an old Checkout URL.
         _clear_checkout_session()
 
     # =========================================================
@@ -575,7 +551,6 @@ def render() -> None:
 
     else:
 
-        # A free user should not retain an old billing portal.
         _clear_portal_session()
 
         st.write(
@@ -591,10 +566,13 @@ def render() -> None:
         )
 
         if billing["currency"] == "BRL":
+
             st.caption(
                 "Portuguese accounts are billed in Brazilian Real (BRL)."
             )
+
         else:
+
             st.caption(
                 "International accounts are billed in US Dollars (USD)."
             )
@@ -659,7 +637,7 @@ def render() -> None:
 
         st.caption(
             ui(
-                "Payments are processed securely by Stripe. "
+                "Secure payment powered by Stripe. "
                 "YAFFiliate does not store your card details."
             )
         )
