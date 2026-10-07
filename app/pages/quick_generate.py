@@ -269,7 +269,7 @@ def _render_deliverables() -> None:
     with right_column:
         st.markdown(f"✅ {t('qg_google_ads')}")
         st.markdown(f"✅ {t('qg_campaign_summary')}")
-        st.markdown(f"✅ {t('qg_zip_package')}")
+        st.markdown(f"🔒 {t('qg_zip_package')}")
 
 
 def _is_pro_user() -> bool:

@@ -82,9 +82,9 @@ TRANSLATIONS = {
             "From One Product to a Complete Marketing Campaign in Minutes."
         ),
         "qg_subtitle": (
-            "Search for a product, generate the campaign, "
-            "and download the complete ZIP package."
-        ),
+    "Enter a product and generate your campaign free. "
+    "Upgrade to Pro to download the complete marketing package."
+),
         "qg_info": (
             "Search any product and YAffiliate will create a complete "
             "marketing campaign in minutes."
@@ -100,13 +100,13 @@ TRANSLATIONS = {
             "Your login session has expired. Please sign in again."
         ),
         "qg_generated": "Marketing kit generated and saved.",
-        "qg_kit_include": "Your marketing kit will include",
+        "qg_kit_include": "Your free campaign preview includes",
         "qg_seo_article": "SEO article",
         "qg_landing_page": "Landing page",
         "qg_email_sequence": "Email sequence",
         "qg_google_ads": "Google Ads",
         "qg_campaign_summary": "Campaign summary",
-        "qg_zip_package": "Complete ZIP package",
+        "qg_zip_package": "Complete ZIP download — Pro",
         "qg_ready": "Marketing Kit Ready",
         "qg_placeholder_warning": (
             "This campaign used estimated placeholder product data "
