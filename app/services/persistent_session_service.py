@@ -29,9 +29,12 @@ class PersistentSessionService:
         self.supabase = SupabaseService()
         self.admin = self.supabase.admin_client
 
-        key = os.getenv(
-            "AUTH_SESSION_ENCRYPTION_KEY",
-            "",
+        key = str(
+            os.getenv("AUTH_SESSION_ENCRYPTION_KEY")
+            or st.secrets.get(
+                "AUTH_SESSION_ENCRYPTION_KEY",
+                ""
+            )
         ).strip()
 
         if not key:
