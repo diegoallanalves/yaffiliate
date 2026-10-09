@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from app.services.admin_service import AdminService
 from app.services.subscription_service import SubscriptionService
 from app.services.translation_service import (
     LANGUAGES,
@@ -45,6 +46,7 @@ NAV_ITEMS = [
     ("🎯", "google_ads", "google_ads", True),
     ("🛒", "affiliate_products", "affiliate_products", True),
     ("⚙️", "settings", "settings", False),
+    ("📈", "growth_dashboard", "growth_dashboard", False),
 ]
 
 
@@ -401,6 +403,29 @@ def sidebar_navigation() -> str:
             ] = selected_route
 
             st.rerun()
+
+        # -----------------------------------------------------
+        # Private owner tools
+        # -----------------------------------------------------
+
+        if AdminService.is_admin():
+            if st.button(
+                "📈 Growth Dashboard",
+                key="nav_growth_dashboard",
+                use_container_width=True,
+                type=(
+                    "primary"
+                    if selected_route == "growth_dashboard"
+                    else "secondary"
+                ),
+            ):
+                selected_route = "growth_dashboard"
+
+                st.session_state[
+                    "selected_route"
+                ] = selected_route
+
+                st.rerun()
 
         st.divider()
 

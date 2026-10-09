@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+import time
+
 import streamlit as st
 
 from app.bootstrap import bootstrap_app
@@ -11,16 +14,23 @@ from app.components.auth_ui import (
 )
 from app.components.layout import sidebar_navigation
 from app.router import render_route
-from app.services.subscription_service import SubscriptionService
+from app.services.persistent_session_service import (
+    PersistentSessionService,
+)
+from app.services.subscription_service import (
+    SubscriptionService,
+)
 from app.services.translation_service import (
     get_language,
     set_language,
 )
 
 
-# ---------------------------------------------------------
-# SUPPORTED LANGUAGES
-# ---------------------------------------------------------
+# =========================================================
+# CONFIGURATION
+# =========================================================
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_LANGUAGE = "en"
 
@@ -31,9 +41,20 @@ SUPPORTED_LANGUAGES = {
     "zh_CN",
 }
 
+AUTH_WAIT_SECONDS = 3.0
+AUTH_WAIT_INTERVAL = 0.4
+
+AUTH_WAIT_KEY = "_auth_restore_started"
+AUTH_WAIT_DONE_KEY = "_auth_restore_wait_done"
+
+
+# =========================================================
+# QUERY PARAMETERS
+# =========================================================
 
 def _query_value(name: str) -> str:
-    """Return a single Streamlit query-parameter value."""
+    """Return a single query parameter."""
+
     value = st.query_params.get(name, "")
 
     if isinstance(value, list):
@@ -42,42 +63,94 @@ def _query_value(name: str) -> str:
     return str(value or "").strip()
 
 
+# =========================================================
+# LANGUAGE
+# =========================================================
+
 def _handle_language_return() -> None:
-    """
-    Apply the language received from the public YAffiliate website.
+    """Apply language received from the website."""
 
-    Supported:
-        ?lang=en
-        ?lang=pt_BR
-        ?lang=es
-        ?lang=zh_CN
+    requested = _query_value("lang")
 
-    The URL language parameter is a one-time handoff.
-    After it is applied, it is removed so the in-app language
-    selector can change languages normally.
-    """
-
-    requested_language = _query_value("lang")
-
-    # No language parameter means there is nothing to import.
-    # Keep the customer's current language unchanged.
-    if not requested_language:
+    if not requested:
         return
 
-    # Unsupported languages fall back to English.
-    if requested_language not in SUPPORTED_LANGUAGES:
-        requested_language = DEFAULT_LANGUAGE
+    if requested not in SUPPORTED_LANGUAGES:
+        requested = DEFAULT_LANGUAGE
 
-    # Apply the language received from the website.
-    if requested_language != get_language():
-        set_language(requested_language)
+    if requested != get_language():
+        set_language(requested)
 
-    # The website-to-app language handoff has now been consumed.
-    # Remove only the language parameter so Stripe parameters
-    # or other query parameters remain untouched.
     if "lang" in st.query_params:
         del st.query_params["lang"]
 
+
+# =========================================================
+# PERSISTENT AUTHENTICATION
+# =========================================================
+
+def _restore_persistent_login() -> None:
+    """Restore authentication from browser cookies."""
+
+    if st.session_state.get("authenticated", False):
+        st.session_state.pop(AUTH_WAIT_KEY, None)
+        st.session_state.pop(AUTH_WAIT_DONE_KEY, None)
+        return
+
+    try:
+        restored = PersistentSessionService().restore()
+
+    except Exception:
+        logger.exception(
+            "Persistent session restoration failed."
+        )
+        restored = False
+
+    if restored:
+        st.session_state.pop(AUTH_WAIT_KEY, None)
+        st.session_state.pop(AUTH_WAIT_DONE_KEY, None)
+        st.rerun()
+
+
+def _wait_for_authentication() -> None:
+    """Wait briefly for browser cookies to initialize."""
+
+    if st.session_state.get("authenticated", False):
+        return
+
+    # Do not restart the timer after it finishes.
+    if st.session_state.get(AUTH_WAIT_DONE_KEY, False):
+        return
+
+    now = time.monotonic()
+
+    if AUTH_WAIT_KEY not in st.session_state:
+        st.session_state[AUTH_WAIT_KEY] = now
+
+    elapsed = now - st.session_state[AUTH_WAIT_KEY]
+
+    if elapsed >= AUTH_WAIT_SECONDS:
+        st.session_state[AUTH_WAIT_DONE_KEY] = True
+        st.session_state.pop(AUTH_WAIT_KEY, None)
+        return
+
+    st.title("🚀 YAffiliate")
+    st.info("Restoring your session...")
+
+    progress = min(
+        elapsed / AUTH_WAIT_SECONDS,
+        1.0,
+    )
+
+    st.progress(progress)
+
+    time.sleep(AUTH_WAIT_INTERVAL)
+    st.rerun()
+
+
+# =========================================================
+# STRIPE PAYMENT RETURN
+# =========================================================
 
 def _handle_payment_return() -> None:
     """Handle and verify a Stripe Checkout return."""
@@ -87,7 +160,8 @@ def _handle_payment_return() -> None:
 
     if payment == "cancelled":
         st.info(
-            "Payment was cancelled. Your plan has not changed."
+            "Payment was cancelled. "
+            "Your plan has not changed."
         )
         st.query_params.clear()
         return
@@ -107,17 +181,14 @@ def _handle_payment_return() -> None:
         st.session_state.get(
             "auth_user_id",
             "",
-        )
-        or ""
+        ) or ""
     ).strip()
 
-    # Stripe Checkout may return in a fresh Streamlit browser
-    # session. Keep the payment parameters available until
-    # the customer signs in.
     if not user_id:
         st.info(
-            "🎉 Payment received. Please sign in to finish "
-            "activating YAffiliate Pro."
+            "🎉 Payment received. "
+            "Please sign in to finish activating "
+            "YAffiliate Pro."
         )
         return
 
@@ -143,7 +214,8 @@ def _handle_payment_return() -> None:
         )
 
         st.success(
-            "🎉 Payment verified! YAffiliate Pro is now active."
+            "🎉 Payment verified! "
+            "YAffiliate Pro is now active."
         )
 
         status = subscription.get(
@@ -151,9 +223,7 @@ def _handle_payment_return() -> None:
             "active",
         )
 
-        currency = subscription.get(
-            "currency",
-        )
+        currency = subscription.get("currency")
 
         if currency:
             st.caption(
@@ -168,13 +238,16 @@ def _handle_payment_return() -> None:
 
         st.query_params.clear()
 
-    except Exception as exc:
-        st.error(
-            "We could not verify the Stripe subscription yet. "
-            "Your account has not been upgraded."
+    except Exception:
+        logger.exception(
+            "Stripe subscription verification failed."
         )
 
-        st.caption(str(exc))
+        st.error(
+            "We could not verify the Stripe "
+            "subscription yet. "
+            "Your account has not been upgraded."
+        )
 
 
 # =========================================================
@@ -184,31 +257,40 @@ def _handle_payment_return() -> None:
 bootstrap_app()
 
 
-# ---------------------------------------------------------
+# =========================================================
 # LANGUAGE
-# ---------------------------------------------------------
+# =========================================================
 
-# Import the language selected on the public YAffiliate website.
-#
-# The URL parameter is consumed once and then removed so the
-# customer can freely change language inside the application.
 _handle_language_return()
 
 
-# ---------------------------------------------------------
-# STRIPE
-# ---------------------------------------------------------
+# =========================================================
+# RESTORE SESSION
+# =========================================================
 
-# Handle Stripe before authentication.
-#
-# If Stripe returns in a fresh Streamlit session, the
-# customer can sign in while the Checkout Session ID
-# remains available for secure verification.
+_restore_persistent_login()
+
+
+# =========================================================
+# AUTHENTICATION LOADING
+# =========================================================
+
+if not st.session_state.get(
+    "authenticated",
+    False,
+):
+    _wait_for_authentication()
+
+
+# =========================================================
+# STRIPE
+# =========================================================
+
 _handle_payment_return()
 
 
 # =========================================================
-# AUTHENTICATION
+# LOGIN / REGISTRATION
 # =========================================================
 
 if not st.session_state.get(

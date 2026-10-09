@@ -5,31 +5,88 @@ from __future__ import annotations
 import streamlit as st
 
 from app.services.auth_service import AuthService
-from app.services.growth_analytics_service import GrowthAnalyticsService
-from app.services.translation_service import get_language, t, ui
+from app.services.growth_analytics_service import (
+    GrowthAnalyticsService,
+)
+from app.services.persistent_session_service import (
+    PersistentSessionService,
+)
+from app.services.translation_service import (
+    get_language,
+    t,
+    ui,
+)
 
 
 def _store_auth_session(response) -> bool:
-    """Persist the authenticated Supabase session across Streamlit reruns."""
+    """Store the authenticated Supabase session."""
+
     user = getattr(response, "user", None)
     session = getattr(response, "session", None)
 
     if user is None or session is None:
         return False
 
-    access_token = getattr(session, "access_token", None)
-    refresh_token = getattr(session, "refresh_token", None)
+    access_token = getattr(
+        session,
+        "access_token",
+        None,
+    )
+
+    refresh_token = getattr(
+        session,
+        "refresh_token",
+        None,
+    )
 
     if not access_token or not refresh_token:
         return False
 
-    st.session_state["auth_user_id"] = str(user.id)
-    st.session_state["auth_user_email"] = str(user.email or "")
-    st.session_state["authenticated"] = True
-    st.session_state["supabase_access_token"] = str(access_token)
-    st.session_state["supabase_refresh_token"] = str(refresh_token)
+    st.session_state[
+        "auth_user_id"
+    ] = str(user.id)
+
+    st.session_state[
+        "auth_user_email"
+    ] = str(user.email or "")
+
+    st.session_state[
+        "authenticated"
+    ] = True
+
+    st.session_state[
+        "supabase_access_token"
+    ] = str(access_token)
+
+    st.session_state[
+        "supabase_refresh_token"
+    ] = str(refresh_token)
 
     return True
+
+
+def _create_persistent_session(response) -> None:
+    """Create the browser's persistent login session."""
+
+    user = getattr(response, "user", None)
+    session = getattr(response, "session", None)
+
+    if user is None or session is None:
+        return
+
+    refresh_token = getattr(
+        session,
+        "refresh_token",
+        None,
+    )
+
+    if not refresh_token:
+        return
+
+    PersistentSessionService().create(
+        user_id=str(user.id),
+        refresh_token=str(refresh_token),
+    )
 
 
 def render_auth_page() -> None:
@@ -37,9 +94,11 @@ def render_auth_page() -> None:
 
     st.title(ui("🚀 YAffiliate"))
     st.subheader(ui("AI Marketing Platform"))
+
     st.write(
         ui(
-            "Sign in to create, save and manage your affiliate campaigns."
+            "Sign in to create, save and manage "
+            "your affiliate campaigns."
         )
     )
 
@@ -88,10 +147,19 @@ def _sign_in(auth: AuthService) -> None:
         if not _store_auth_session(response):
             st.error(
                 ui(
-                    "Sign in did not return an authenticated session."
+                    "Sign in did not return an "
+                    "authenticated session."
                 )
             )
             return
+
+        try:
+            _create_persistent_session(response)
+
+        except Exception:
+            # Persistent login must never prevent
+            # a successful normal sign-in.
+            pass
 
         st.success(
             ui("Signed in successfully.")
@@ -142,7 +210,8 @@ def _sign_up(auth: AuthService) -> None:
     if len(password) < 8:
         st.error(
             ui(
-                "Password must contain at least 8 characters."
+                "Password must contain at least "
+                "8 characters."
             )
         )
         return
@@ -172,15 +241,14 @@ def _sign_up(auth: AuthService) -> None:
             )
             return
 
-        # Record a successful account creation in the growth funnel.
-        # We deliberately do not store the customer's email address.
         GrowthAnalyticsService().track(
             "signup",
             event_page="auth",
             user_id=str(user.id),
             metadata={
                 "language": get_language(),
-                "email_confirmation_required": session is None,
+                "email_confirmation_required":
+                    session is None,
             },
         )
 
@@ -188,7 +256,8 @@ def _sign_up(auth: AuthService) -> None:
             st.success(
                 ui(
                     "Account created. Check your email, "
-                    "confirm your address, then return and sign in."
+                    "confirm your address, then return "
+                    "and sign in."
                 )
             )
             return
@@ -196,11 +265,20 @@ def _sign_up(auth: AuthService) -> None:
         if not _store_auth_session(response):
             st.error(
                 ui(
-                    "Account was created but the authenticated "
-                    "session could not be stored. Please sign in."
+                    "Account was created but the "
+                    "authenticated session could not "
+                    "be stored. Please sign in."
                 )
             )
             return
+
+        try:
+            _create_persistent_session(response)
+
+        except Exception:
+            # Account creation should still succeed
+            # if persistent login is unavailable.
+            pass
 
         st.success(
             ui("Account created successfully.")
@@ -230,6 +308,14 @@ def render_user_sidebar() -> None:
             use_container_width=True,
             key="yaffiliate_sign_out",
         ):
+            try:
+                PersistentSessionService().revoke_current()
+
+            except Exception:
+                # Continue with Supabase sign-out even if
+                # persistent-session revocation fails.
+                pass
+
             try:
                 AuthService().sign_out()
 

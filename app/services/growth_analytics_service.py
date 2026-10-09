@@ -11,7 +11,7 @@ from app.services.supabase_service import SupabaseService
 
 
 class GrowthAnalyticsService:
-    """Record customer-acquisition and conversion events."""
+    """Record and analyse customer-acquisition events."""
 
     TABLE_NAME = "growth_events"
 
@@ -24,8 +24,8 @@ class GrowthAnalyticsService:
         """
         Return a lightweight anonymous session identifier.
 
-        This allows multiple events in the same Streamlit session to
-        be connected even before the visitor signs in.
+        This allows multiple events in the same Streamlit session
+        to be connected even before the visitor signs in.
         """
         if "growth_session_id" not in st.session_state:
             st.session_state["growth_session_id"] = str(uuid4())
@@ -35,8 +35,9 @@ class GrowthAnalyticsService:
     @staticmethod
     def capture_utm_parameters() -> None:
         """
-        Capture acquisition parameters from the URL once and preserve
-        them throughout the Streamlit session.
+        Capture acquisition parameters from the URL once.
+
+        The values remain available throughout the Streamlit session.
         """
         parameters = (
             "utm_source",
@@ -67,7 +68,6 @@ class GrowthAnalyticsService:
         metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Write one Growth Analytics event to Supabase."""
-
         event_name = str(event_name or "").strip()
 
         if not event_name:
@@ -111,3 +111,174 @@ class GrowthAnalyticsService:
         except Exception:
             # Analytics must never break the customer experience.
             return False
+
+    def get_events(
+        self,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """Return recent Growth Analytics events."""
+        safe_limit = max(1, min(int(limit), 10000))
+
+        response = (
+            self.client
+            .table(self.TABLE_NAME)
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(safe_limit)
+            .execute()
+        )
+
+        return list(response.data or [])
+
+    def get_event_counts(
+        self,
+        limit: int = 5000,
+    ) -> dict[str, int]:
+        """Return event totals grouped by event name."""
+        events = self.get_events(limit=limit)
+        counts: dict[str, int] = {}
+
+        for event in events:
+            event_name = str(
+                event.get("event_name") or ""
+            ).strip()
+
+            if not event_name:
+                continue
+
+            counts[event_name] = (
+                counts.get(event_name, 0) + 1
+            )
+
+        return counts
+
+    def get_funnel_metrics(
+        self,
+        limit: int = 5000,
+    ) -> dict[str, int | float]:
+        """Return the main YAffiliate conversion funnel."""
+        events = self.get_events(limit=limit)
+
+        signup_users: set[str] = set()
+        campaign_users: set[str] = set()
+        upgrade_users: set[str] = set()
+        paid_users: set[str] = set()
+
+        campaign_events = 0
+        upgrade_events = 0
+        subscription_events = 0
+
+        for event in events:
+            event_name = str(
+                event.get("event_name") or ""
+            ).strip()
+
+            user_id = event.get("user_id")
+            user_key = str(user_id) if user_id else ""
+
+            if event_name == "signup":
+                if user_key:
+                    signup_users.add(user_key)
+
+            elif event_name == "campaign_generated":
+                campaign_events += 1
+
+                if user_key:
+                    campaign_users.add(user_key)
+
+            elif event_name == "upgrade_clicked":
+                upgrade_events += 1
+
+                if user_key:
+                    upgrade_users.add(user_key)
+
+            elif event_name == "subscription_started":
+                subscription_events += 1
+
+                if user_key:
+                    paid_users.add(user_key)
+
+        signups = len(signup_users)
+        campaign_users_count = len(campaign_users)
+        upgrade_users_count = len(upgrade_users)
+        paid_customers = len(paid_users)
+
+        signup_to_campaign = self._percentage(
+            campaign_users_count,
+            signups,
+        )
+
+        campaign_to_upgrade = self._percentage(
+            upgrade_users_count,
+            campaign_users_count,
+        )
+
+        upgrade_to_paid = self._percentage(
+            paid_customers,
+            upgrade_users_count,
+        )
+
+        signup_to_paid = self._percentage(
+            paid_customers,
+            signups,
+        )
+
+        return {
+            "signups": signups,
+            "campaign_users": campaign_users_count,
+            "campaign_events": campaign_events,
+            "upgrade_users": upgrade_users_count,
+            "upgrade_events": upgrade_events,
+            "paid_customers": paid_customers,
+            "subscription_events": subscription_events,
+            "signup_to_campaign": signup_to_campaign,
+            "campaign_to_upgrade": campaign_to_upgrade,
+            "upgrade_to_paid": upgrade_to_paid,
+            "signup_to_paid": signup_to_paid,
+        }
+
+    def get_acquisition_sources(
+        self,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """Return event totals grouped by UTM source."""
+        events = self.get_events(limit=limit)
+        sources: dict[str, int] = {}
+
+        for event in events:
+            source = str(
+                event.get("utm_source") or "Direct / Unknown"
+            ).strip()
+
+            if not source:
+                source = "Direct / Unknown"
+
+            sources[source] = sources.get(source, 0) + 1
+
+        ranked = sorted(
+            sources.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+
+        return [
+            {
+                "source": source,
+                "events": count,
+            }
+            for source, count in ranked
+        ]
+
+    @staticmethod
+    def _percentage(
+        numerator: int,
+        denominator: int,
+    ) -> float:
+        """Safely calculate a percentage."""
+        if denominator <= 0:
+            return 0.0
+
+        return round(
+            (numerator / denominator) * 100,
+            2,
+        )
