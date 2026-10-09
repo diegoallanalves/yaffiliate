@@ -167,7 +167,11 @@ class PersistentSessionService:
 
         # The browser cookie may not be available
         # during the first Streamlit execution.
-        browser_token = self.cookies.get(COOKIE_NAME)
+        try:
+            browser_token = self.cookies.get(COOKIE_NAME)
+        except TypeError:
+            # Cookie component has not initialized yet.
+            return False
 
         if not browser_token:
             return False
@@ -347,12 +351,13 @@ class PersistentSessionService:
     # Revoke
     # -----------------------------------------------------
 
-    def revoke_current(self) -> None:
-        """Revoke the current persistent browser session."""
-
-        browser_token = self.cookies.get(
-            COOKIE_NAME
+    try:
+        browser_token = self.cookies.get(COOKIE_NAME)
+    except TypeError:
+        logger.warning(
+            "Cookie component not ready during logout."
         )
+        browser_token = None
 
         if browser_token:
             token_hash = self._hash_token(
