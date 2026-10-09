@@ -55,15 +55,17 @@ def _finish_persistent_session() -> None:
         return
 
     try:
-        PersistentSessionService().create(
+        service = PersistentSessionService()
+        service.create(
             user_id=str(user_id),
             refresh_token=str(refresh_token),
         )
     except Exception:
         logger.exception("Could not create persistent login session.")
-    finally:
-        # Avoid inserting another DB record on every Streamlit rerun.
-        st.session_state.pop(PENDING_KEY, None)
+        return
+    st.session_state.pop(PENDING_KEY, None)
+    # Mount the browser bridge again to send the queued write.
+    st.rerun()
 
 
 def render_auth_page() -> None:
@@ -188,10 +190,14 @@ def _sign_up(auth: AuthService) -> None:
         st.error(ui("Account creation failed. Please try again."))
 
 
+def _persistent_cookie_writer() -> None:
+    """Create the persistent session once after sign-in."""
+    if st.session_state.get(PENDING_KEY):
+        _finish_persistent_session()
+
+
 def render_user_sidebar() -> None:
-    # Called after authentication on a normal, full app render.
-    # Do not rerun immediately after writing the browser cookie.
-    _finish_persistent_session()
+    _persistent_cookie_writer()
 
     email = st.session_state.get(
         "auth_user_email", "Signed-in user"

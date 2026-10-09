@@ -11,7 +11,9 @@ from typing import Any
 
 import streamlit as st
 from cryptography.fernet import Fernet, InvalidToken
-from streamlit_cookies_controller import CookieController
+from browser_session_cookie import (
+    COOKIE_STATE, COOKIE_COMMAND, queue_cookie,
+)
 
 from app.services.supabase_service import SupabaseService
 
@@ -44,13 +46,7 @@ class PersistentSessionService:
 
         self.fernet = Fernet(key.encode("utf-8"))
 
-        self.cookies = CookieController(
-            key="yaffiliate_cookie_controller"
-        )
 
-    def _cookie_ready(self) -> bool:
-        """Whether the browser component has returned its cookie map."""
-        return isinstance(self.cookies.getAll(), dict)
 
     # -----------------------------------------------------
     # Helpers
@@ -88,12 +84,8 @@ class PersistentSessionService:
         return result
 
     def _delete_cookie(self) -> None:
-        try:
-            self.cookies.remove(COOKIE_NAME)
-        except Exception:
-            logger.warning(
-                "Could not remove persistent cookie."
-            )
+        queue_cookie(None)
+        st.session_state[COOKIE_STATE] = ""
 
     def _revoke_record(self, record_id: Any) -> None:
         try:
@@ -128,9 +120,6 @@ class PersistentSessionService:
         if not user_id or not refresh_token:
             return
 
-        if not self._cookie_ready():
-            raise RuntimeError("Browser cookie component is not ready")
-
         browser_token = secrets.token_urlsafe(48)
         token_hash = self._hash_token(browser_token)
 
@@ -153,11 +142,7 @@ class PersistentSessionService:
             .execute()
         )
 
-        self.cookies.set(
-            COOKIE_NAME,
-            browser_token,
-            max_age=SESSION_DAYS * 24 * 60 * 60,
-        )
+        queue_cookie(browser_token)
 
     # -----------------------------------------------------
     # Restore
@@ -174,9 +159,7 @@ class PersistentSessionService:
 
         # The browser cookie may not be available
         # during the first Streamlit execution.
-        if not self._cookie_ready():
-            return False
-        browser_token = self.cookies.get(COOKIE_NAME)
+        browser_token = st.session_state.get(COOKIE_STATE)
 
         if not browser_token:
             return False
@@ -358,20 +341,16 @@ class PersistentSessionService:
 
     def revoke_current(self) -> None:
         """Revoke the current persistent browser session."""
-        try:
-            browser_token = self.cookies.get(COOKIE_NAME)
-        except TypeError:
-            logger.warning("Cookie component not ready during logout.")
-            browser_token = None
-
+        browser_token = st.session_state.get(COOKIE_STATE)
+        pending = st.session_state.get(COOKIE_COMMAND) or {}
+        if not browser_token and pending.get("action") == "set":
+            browser_token = pending.get("token")
         if browser_token:
             token_hash = self._hash_token(str(browser_token))
             (
-                self.admin
-                .table("auth_sessions")
+                self.admin.table("auth_sessions")
                 .update({"revoked_at": self._now().isoformat()})
                 .eq("session_token_hash", token_hash)
                 .execute()
             )
-
         self._delete_cookie()

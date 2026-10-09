@@ -1,3 +1,4 @@
+
 """YAFFiliate application entry point."""
 
 from __future__ import annotations
@@ -6,6 +7,8 @@ import logging
 import time
 
 import streamlit as st
+
+from browser_session_cookie import mount_browser_cookie
 
 from app.bootstrap import bootstrap_app
 from app.components.auth_ui import (
@@ -118,7 +121,6 @@ def _wait_for_authentication() -> None:
     if st.session_state.get("authenticated", False):
         return
 
-    # Do not restart the timer after it finishes.
     if st.session_state.get(AUTH_WAIT_DONE_KEY, False):
         return
 
@@ -255,6 +257,9 @@ def _handle_payment_return() -> None:
 # =========================================================
 
 bootstrap_app()
+
+# Initialize browser cookie bridge on every app execution.
+mount_browser_cookie()
 
 
 # =========================================================
