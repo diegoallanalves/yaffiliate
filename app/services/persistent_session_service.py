@@ -48,6 +48,10 @@ class PersistentSessionService:
             key="yaffiliate_cookie_controller"
         )
 
+    def _cookie_ready(self) -> bool:
+        """Whether the browser component has returned its cookie map."""
+        return isinstance(self.cookies.getAll(), dict)
+
     # -----------------------------------------------------
     # Helpers
     # -----------------------------------------------------
@@ -124,6 +128,9 @@ class PersistentSessionService:
         if not user_id or not refresh_token:
             return
 
+        if not self._cookie_ready():
+            raise RuntimeError("Browser cookie component is not ready")
+
         browser_token = secrets.token_urlsafe(48)
         token_hash = self._hash_token(browser_token)
 
@@ -167,11 +174,9 @@ class PersistentSessionService:
 
         # The browser cookie may not be available
         # during the first Streamlit execution.
-        try:
-            browser_token = self.cookies.get(COOKIE_NAME)
-        except TypeError:
-            # Cookie component has not initialized yet.
+        if not self._cookie_ready():
             return False
+        browser_token = self.cookies.get(COOKIE_NAME)
 
         if not browser_token:
             return False
