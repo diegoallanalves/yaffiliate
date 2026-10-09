@@ -2,99 +2,74 @@
 
 from __future__ import annotations
 
+import logging
+
 import streamlit as st
 
 from app.services.auth_service import AuthService
-from app.services.growth_analytics_service import (
-    GrowthAnalyticsService,
-)
-from app.services.persistent_session_service import (
-    PersistentSessionService,
-)
-from app.services.translation_service import (
-    get_language,
-    t,
-    ui,
-)
+from app.services.growth_analytics_service import GrowthAnalyticsService
+from app.services.persistent_session_service import PersistentSessionService
+from app.services.translation_service import get_language, t, ui
+
+logger = logging.getLogger(__name__)
+PENDING_KEY = "_persistent_login_pending"
 
 
 def _store_auth_session(response) -> bool:
-    """Store the authenticated Supabase session."""
-
+    """Store the authenticated Supabase session in Streamlit."""
     user = getattr(response, "user", None)
     session = getattr(response, "session", None)
-
     if user is None or session is None:
         return False
 
-    access_token = getattr(
-        session,
-        "access_token",
-        None,
-    )
-
-    refresh_token = getattr(
-        session,
-        "refresh_token",
-        None,
-    )
-
-    if not access_token or not refresh_token:
+    access_token = getattr(session, "access_token", None)
+    refresh_token = getattr(session, "refresh_token", None)
+    user_id = getattr(user, "id", None)
+    if not access_token or not refresh_token or not user_id:
         return False
 
-    st.session_state[
-        "auth_user_id"
-    ] = str(user.id)
-
-    st.session_state[
-        "auth_user_email"
-    ] = str(user.email or "")
-
-    st.session_state[
-        "authenticated"
-    ] = True
-
-    st.session_state[
-        "supabase_access_token"
-    ] = str(access_token)
-
-    st.session_state[
-        "supabase_refresh_token"
-    ] = str(refresh_token)
-
+    st.session_state["auth_user_id"] = str(user_id)
+    st.session_state["auth_user_email"] = str(
+        getattr(user, "email", "") or ""
+    )
+    st.session_state["supabase_access_token"] = str(access_token)
+    st.session_state["supabase_refresh_token"] = str(refresh_token)
+    st.session_state["authenticated"] = True
     return True
 
 
-def _create_persistent_session(response) -> None:
-    """Create the browser's persistent login session."""
+def _queue_persistent_session() -> None:
+    """Create the cookie on the next full app render, not before rerun."""
+    st.session_state[PENDING_KEY] = True
 
-    user = getattr(response, "user", None)
-    session = getattr(response, "session", None)
 
-    if user is None or session is None:
+def _finish_persistent_session() -> None:
+    """Write the cookie without immediately interrupting its component."""
+    if not st.session_state.get(PENDING_KEY):
         return
 
-    refresh_token = getattr(
-        session,
-        "refresh_token",
-        None,
-    )
-
-    if not refresh_token:
+    user_id = st.session_state.get("auth_user_id")
+    refresh_token = st.session_state.get("supabase_refresh_token")
+    if not user_id or not refresh_token:
+        st.session_state.pop(PENDING_KEY, None)
         return
 
-    PersistentSessionService().create(
-        user_id=str(user.id),
-        refresh_token=str(refresh_token),
-    )
+    try:
+        PersistentSessionService().create(
+            user_id=str(user_id),
+            refresh_token=str(refresh_token),
+        )
+    except Exception:
+        logger.exception("Could not create persistent login session.")
+    finally:
+        # Avoid inserting another DB record on every Streamlit rerun.
+        st.session_state.pop(PENDING_KEY, None)
 
 
 def render_auth_page() -> None:
     auth = AuthService()
-
     st.title(ui("🚀 YAffiliate"))
     st.subheader(ui("AI Marketing Platform"))
-
     st.write(
         ui(
             "Sign in to create, save and manage "
@@ -103,32 +78,20 @@ def render_auth_page() -> None:
     )
 
     sign_in, sign_up = st.tabs(
-        [
-            ui("Sign In"),
-            ui("Create Account"),
-        ]
+        [ui("Sign In"), ui("Create Account")]
     )
-
     with sign_in:
         _sign_in(auth)
-
     with sign_up:
         _sign_up(auth)
 
 
 def _sign_in(auth: AuthService) -> None:
     with st.form("auth_sign_in"):
-        email = st.text_input(
-            ui("Email"),
-            key="signin_email",
-        )
-
+        email = st.text_input(ui("Email"), key="signin_email")
         password = st.text_input(
-            ui("Password"),
-            type="password",
-            key="signin_password",
+            ui("Password"), type="password", key="signin_password"
         )
-
         submitted = st.form_submit_button(
             ui("🔐 Sign In"),
             type="primary",
@@ -139,59 +102,31 @@ def _sign_in(auth: AuthService) -> None:
         return
 
     try:
-        response = auth.sign_in(
-            email,
-            password,
-        )
-
+        response = auth.sign_in(email, password)
         if not _store_auth_session(response):
             st.error(
-                ui(
-                    "Sign in did not return an "
-                    "authenticated session."
-                )
+                ui("Sign in did not return an authenticated session.")
             )
             return
 
-        try:
-            _create_persistent_session(response)
-
-        except Exception:
-            # Persistent login must never prevent
-            # a successful normal sign-in.
-            pass
-
-        st.success(
-            ui("Signed in successfully.")
-        )
-
+        _queue_persistent_session()
         st.rerun()
-
-    except Exception as error:
-        st.error(
-            f"Sign in failed: {error}"
-        )
+    except Exception:
+        logger.exception("Sign in failed.")
+        st.error(ui("Sign in failed. Please check your credentials."))
 
 
 def _sign_up(auth: AuthService) -> None:
     with st.form("auth_sign_up"):
-        email = st.text_input(
-            ui("Email"),
-            key="signup_email",
-        )
-
+        email = st.text_input(ui("Email"), key="signup_email")
         password = st.text_input(
-            ui("Password"),
-            type="password",
-            key="signup_password",
+            ui("Password"), type="password", key="signup_password"
         )
-
         confirm = st.text_input(
             ui("Confirm password"),
             type="password",
             key="signup_confirm",
         )
-
         submitted = st.form_submit_button(
             ui("✨ Create Account"),
             type="primary",
@@ -200,64 +135,39 @@ def _sign_up(auth: AuthService) -> None:
 
     if not submitted:
         return
-
     if password != confirm:
-        st.error(
-            ui("Passwords do not match.")
-        )
+        st.error(ui("Passwords do not match."))
         return
-
     if len(password) < 8:
-        st.error(
-            ui(
-                "Password must contain at least "
-                "8 characters."
-            )
-        )
+        st.error(ui("Password must contain at least 8 characters."))
         return
 
     try:
-        response = auth.sign_up(
-            email,
-            password,
-            get_language(),
-        )
-
-        user = getattr(
-            response,
-            "user",
-            None,
-        )
-
-        session = getattr(
-            response,
-            "session",
-            None,
-        )
-
+        response = auth.sign_up(email, password, get_language())
+        user = getattr(response, "user", None)
+        session = getattr(response, "session", None)
         if user is None:
-            st.error(
-                ui("Account could not be created.")
-            )
+            st.error(ui("Account could not be created."))
             return
 
-        GrowthAnalyticsService().track(
-            "signup",
-            event_page="auth",
-            user_id=str(user.id),
-            metadata={
-                "language": get_language(),
-                "email_confirmation_required":
-                    session is None,
-            },
-        )
+        try:
+            GrowthAnalyticsService().track(
+                "signup",
+                event_page="auth",
+                user_id=str(user.id),
+                metadata={
+                    "language": get_language(),
+                    "email_confirmation_required": session is None,
+                },
+            )
+        except Exception:
+            logger.exception("Signup analytics tracking failed.")
 
         if session is None:
             st.success(
                 ui(
                     "Account created. Check your email, "
-                    "confirm your address, then return "
-                    "and sign in."
+                    "confirm your address, then return and sign in."
                 )
             )
             return
@@ -265,39 +175,27 @@ def _sign_up(auth: AuthService) -> None:
         if not _store_auth_session(response):
             st.error(
                 ui(
-                    "Account was created but the "
-                    "authenticated session could not "
-                    "be stored. Please sign in."
+                    "Account was created but the authenticated "
+                    "session could not be stored. Please sign in."
                 )
             )
             return
 
-        try:
-            _create_persistent_session(response)
-
-        except Exception:
-            # Account creation should still succeed
-            # if persistent login is unavailable.
-            pass
-
-        st.success(
-            ui("Account created successfully.")
-        )
-
+        _queue_persistent_session()
         st.rerun()
-
-    except Exception as error:
-        st.error(
-            f"Account creation failed: {error}"
-        )
+    except Exception:
+        logger.exception("Account creation failed.")
+        st.error(ui("Account creation failed. Please try again."))
 
 
 def render_user_sidebar() -> None:
-    email = st.session_state.get(
-        "auth_user_email",
-        "Signed-in user",
-    )
+    # Called after authentication on a normal, full app render.
+    # Do not rerun immediately after writing the browser cookie.
+    _finish_persistent_session()
 
+    email = st.session_state.get(
+        "auth_user_email", "Signed-in user"
+    )
     with st.sidebar:
         st.divider()
         st.caption(t("signed_in"))
@@ -310,17 +208,16 @@ def render_user_sidebar() -> None:
         ):
             try:
                 PersistentSessionService().revoke_current()
-
             except Exception:
-                # Continue with Supabase sign-out even if
-                # persistent-session revocation fails.
-                pass
+                logger.exception("Persistent session revocation failed.")
 
             try:
                 AuthService().sign_out()
-
+            except Exception:
+                logger.exception("Supabase sign out failed.")
             finally:
                 for key in (
+                    PENDING_KEY,
                     "authenticated",
                     "auth_user_id",
                     "auth_user_email",
@@ -335,9 +232,5 @@ def render_user_sidebar() -> None:
                     "quick_generated_custom_product",
                     "quick_generated_campaign_id",
                 ):
-                    st.session_state.pop(
-                        key,
-                        None,
-                    )
-
+                    st.session_state.pop(key, None)
                 st.rerun()
