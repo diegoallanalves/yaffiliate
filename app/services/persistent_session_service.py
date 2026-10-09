@@ -351,29 +351,21 @@ class PersistentSessionService:
     # Revoke
     # -----------------------------------------------------
 
-    try:
-        browser_token = self.cookies.get(COOKIE_NAME)
-    except TypeError:
-        logger.warning(
-            "Cookie component not ready during logout."
-        )
-        browser_token = None
+    def revoke_current(self) -> None:
+        """Revoke the current persistent browser session."""
+        try:
+            browser_token = self.cookies.get(COOKIE_NAME)
+        except TypeError:
+            logger.warning("Cookie component not ready during logout.")
+            browser_token = None
 
         if browser_token:
-            token_hash = self._hash_token(
-                str(browser_token)
-            )
-
+            token_hash = self._hash_token(str(browser_token))
             (
                 self.admin
                 .table("auth_sessions")
-                .update({
-                    "revoked_at": self._now().isoformat()
-                })
-                .eq(
-                    "session_token_hash",
-                    token_hash,
-                )
+                .update({"revoked_at": self._now().isoformat()})
+                .eq("session_token_hash", token_hash)
                 .execute()
             )
 
