@@ -1,3 +1,4 @@
+
 """Supabase repository for YAffiliate products."""
 
 from __future__ import annotations
@@ -398,7 +399,9 @@ class ProductRepository:
             "CompetitionScore": row.get(
                 "competition_score"
             ),
-            "EstimatedCPC": row.get("estimated_cpc"),
+            "EstimatedCPC": row.get(
+                "estimated_cpc"
+            ),
             "GoogleTrendScore": row.get(
                 "google_trend_score"
             ),

@@ -1,32 +1,25 @@
-"""Generate coordinated email sequences from product intelligence.
 
-This service creates a structured series of marketing emails for one
-affiliate product.
-
-CTA means Call to Action.
-"""
+"""Generate responsible affiliate email sequences for YAffiliate."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from app.models.discovery_product import (
-    DiscoveryProduct,
-)
-from app.models.email_sequence import (
-    CampaignEmail,
-    EmailSequence,
-)
-from app.models.product_analysis import (
-    ProductAnalysis,
-)
-from app.services.base_content_generator import (
-    BaseContentGenerator,
-)
+from app.models.discovery_product import DiscoveryProduct
+from app.models.email_sequence import CampaignEmail, EmailSequence
+from app.models.product_analysis import ProductAnalysis
+from app.services.base_content_generator import BaseContentGenerator
 
 
 class EmailSequenceService(BaseContentGenerator):
-    """Generate a coordinated affiliate-marketing email sequence."""
+    """
+    Generate a structured sequence of three to five emails.
+
+    CTA means Call to Action: the next step requested from a reader.
+
+    This service generates drafts, not verified product reviews.
+    It does not send emails or manage subscriber consent.
+    """
 
     VALID_TONES = {
         "Professional",
@@ -56,93 +49,53 @@ class EmailSequenceService(BaseContentGenerator):
         sequence_name: str | None = None,
         **kwargs: Any,
     ) -> EmailSequence:
-        """Generate one complete email sequence.
+        """Generate an email sequence using the existing data model."""
 
-        Args:
-            product:
-                Product promoted by the sequence.
+        self._validate_inputs(product=product, analysis=analysis)
 
-            analysis:
-                Product-intelligence analysis used to shape the messages.
-
-            target_audience:
-                Intended email recipients. When omitted, the audience from
-                the product analysis is used.
-
-            tone:
-                Shared writing style.
-
-            email_count:
-                Number of emails to generate. Supported values are three to
-                five.
-
-            primary_goal:
-                Main action the reader should take.
-
-            sequence_name:
-                Optional custom name for the sequence.
-
-            kwargs:
-                Additional future generator settings.
-
-        Returns:
-            A structured EmailSequence.
-        """
-
-        self._validate_inputs(
-            product=product,
-            analysis=analysis,
-        )
-
-        resolved_audience = self._resolve_audience(
+        audience = self._resolve_audience(
             analysis=analysis,
             target_audience=target_audience,
         )
 
-        resolved_tone = self._resolve_tone(
-            tone
+        resolved_tone = self._resolve_tone(tone)
+        count = self._resolve_email_count(email_count)
+        goal = self._resolve_goal(primary_goal)
+
+        name = (
+            self._clean(sequence_name)
+            or f"{product.product_name} Email Sequence"
         )
 
-        resolved_email_count = self._resolve_email_count(
-            email_count
-        )
+        stages = self._select_stages(count)
+        emails = []
 
-        resolved_goal = self._resolve_goal(
-            primary_goal
-        )
-
-        resolved_sequence_name = (
-            self._resolve_sequence_name(
-                product=product,
-                sequence_name=sequence_name,
+        for number, stage in enumerate(stages, start=1):
+            emails.append(
+                self._build_email(
+                    sequence_number=number,
+                    stage=stage,
+                    product=product,
+                    audience=audience,
+                    tone=resolved_tone,
+                    goal=goal,
+                )
             )
-        )
 
-        emails = self._build_emails(
+        summary = self._build_strategy_summary(
             product=product,
-            analysis=analysis,
-            audience=resolved_audience,
-            tone=resolved_tone,
-            email_count=resolved_email_count,
-            primary_goal=resolved_goal,
-        )
-
-        strategy_summary = self._build_strategy_summary(
-            product=product,
-            email_count=resolved_email_count,
-            primary_goal=resolved_goal,
+            email_count=count,
+            primary_goal=goal,
         )
 
         return EmailSequence(
-            sequence_name=resolved_sequence_name,
+            sequence_name=name,
             product_name=product.product_name,
-            target_audience=resolved_audience,
+            target_audience=audience,
             tone=resolved_tone,
-            emails=tuple(
-                emails
-            ),
-            strategy_summary=strategy_summary,
-            primary_goal=resolved_goal,
+            emails=tuple(emails),
+            strategy_summary=summary,
+            primary_goal=goal,
         )
 
     @staticmethod
@@ -151,416 +104,356 @@ class EmailSequenceService(BaseContentGenerator):
         product: DiscoveryProduct,
         analysis: ProductAnalysis,
     ) -> None:
-        """Validate the required service inputs."""
-
-        if not isinstance(
-            product,
-            DiscoveryProduct,
-        ):
+        if not isinstance(product, DiscoveryProduct):
             raise TypeError(
                 "product must be a DiscoveryProduct instance."
             )
 
-        if not isinstance(
-            analysis,
-            ProductAnalysis,
-        ):
+        if not isinstance(analysis, ProductAnalysis):
             raise TypeError(
                 "analysis must be a ProductAnalysis instance."
             )
 
     @staticmethod
+    def _clean(value: Any) -> str:
+        if value is None:
+            return ""
+        return " ".join(str(value).split())
+
+    @classmethod
     def _resolve_audience(
+        cls,
         *,
         analysis: ProductAnalysis,
         target_audience: str | None,
     ) -> str:
-        """Resolve the intended email audience."""
+        supplied = cls._clean(target_audience)
+        if supplied:
+            return supplied
 
-        if (
-            target_audience
-            and target_audience.strip()
-        ):
-            return target_audience.strip()
-
-        audience_items = [
-            str(item).strip()
-            for item in analysis.target_audience
-            if str(item).strip()
+        audience_items = getattr(analysis, "target_audience", None) or []
+        cleaned = [
+            cls._clean(item)
+            for item in audience_items
+            if cls._clean(item)
         ]
 
-        if audience_items:
-            return ", ".join(
-                audience_items
-            )
-
-        return "people interested in this product"
-
-    def _resolve_tone(
-        self,
-        tone: str,
-    ) -> str:
-        """Validate and normalize the requested tone."""
-
-        cleaned_tone = (
-            tone.strip().title()
-            if tone
-            else "Professional"
+        return (
+            ", ".join(cleaned)
+            if cleaned
+            else "people researching this type of product"
         )
 
-        if cleaned_tone not in self.VALID_TONES:
-            return "Professional"
+    @classmethod
+    def _resolve_tone(cls, tone: str) -> str:
+        supplied = cls._clean(tone)
 
-        return cleaned_tone
+        for valid in cls.VALID_TONES:
+            if supplied.casefold() == valid.casefold():
+                return valid
 
-    def _resolve_email_count(
-        self,
-        email_count: int,
-    ) -> int:
-        """Validate and normalize the requested email count."""
+        return "Professional"
 
-        try:
-            resolved_count = int(
-                email_count
-            )
-        except (
-            TypeError,
-            ValueError,
-        ):
-            return self.MINIMUM_EMAIL_COUNT
+    @classmethod
+    def _resolve_goal(cls, primary_goal: str) -> str:
+        supplied = cls._clean(primary_goal)
 
-        return max(
-            self.MINIMUM_EMAIL_COUNT,
-            min(
-                resolved_count,
-                self.MAXIMUM_EMAIL_COUNT,
-            ),
-        )
-
-    def _resolve_goal(
-        self,
-        primary_goal: str,
-    ) -> str:
-        """Validate and normalize the primary sequence goal."""
-
-        cleaned_goal = (
-            primary_goal.strip().title()
-            if primary_goal
-            else "Visit Sales Page"
-        )
-
-        for valid_goal in self.VALID_GOALS:
-            if (
-                valid_goal.casefold()
-                == cleaned_goal.casefold()
-            ):
-                return valid_goal
+        for valid in cls.VALID_GOALS:
+            if supplied.casefold() == valid.casefold():
+                return valid
 
         return "Visit Sales Page"
 
-    @staticmethod
-    def _resolve_sequence_name(
-        *,
-        product: DiscoveryProduct,
-        sequence_name: str | None,
-    ) -> str:
-        """Resolve the sequence display name."""
+    @classmethod
+    def _resolve_email_count(cls, email_count: int) -> int:
+        try:
+            count = int(email_count)
+        except (TypeError, ValueError, OverflowError):
+            count = cls.MINIMUM_EMAIL_COUNT
 
-        if (
-            sequence_name
-            and sequence_name.strip()
-        ):
-            return sequence_name.strip()
-
-        return (
-            f"{product.product_name} "
-            "Email Sequence"
+        return max(
+            cls.MINIMUM_EMAIL_COUNT,
+            min(count, cls.MAXIMUM_EMAIL_COUNT),
         )
 
-    def _build_emails(
-        self,
-        *,
-        product: DiscoveryProduct,
-        analysis: ProductAnalysis,
-        audience: str,
-        tone: str,
-        email_count: int,
-        primary_goal: str,
-    ) -> list[CampaignEmail]:
-        """Build the requested sequence emails."""
+    @staticmethod
+    def _select_stages(email_count: int) -> list[str]:
+        """
+        Ensure every sequence ends with a decision email.
 
-        email_builders = [
-            self._build_introduction_email,
-            self._build_problem_email,
-            self._build_value_email,
-            self._build_objection_email,
-            self._build_decision_email,
+        3 emails: introduction, evaluation, decision
+        4 emails: introduction, evaluation, concerns, decision
+        5 emails: introduction, evaluation, value,
+                  concerns, decision
+        """
+        if email_count == 3:
+            return ["introduction", "evaluation", "decision"]
+
+        if email_count == 4:
+            return [
+                "introduction",
+                "evaluation",
+                "concerns",
+                "decision",
+            ]
+
+        return [
+            "introduction",
+            "evaluation",
+            "value",
+            "concerns",
+            "decision",
         ]
 
-        emails: list[CampaignEmail] = []
+    @staticmethod
+    def _has_url(value: Any) -> bool:
+        """Basic URL format check; does not verify the destination."""
+        if not isinstance(value, str):
+            return False
 
-        for sequence_number, email_builder in enumerate(
-            email_builders[:email_count],
-            start=1,
-        ):
-            emails.append(
-                email_builder(
-                    sequence_number=sequence_number,
-                    product=product,
-                    analysis=analysis,
-                    audience=audience,
-                    tone=tone,
-                    primary_goal=primary_goal,
-                )
-            )
+        url = value.strip().lower()
 
-        return emails
+        if not url.startswith(("https://", "http://")):
+            return False
 
-    def _build_introduction_email(
-        self,
-        *,
-        sequence_number: int,
-        product: DiscoveryProduct,
-        analysis: ProductAnalysis,
-        audience: str,
-        tone: str,
-        primary_goal: str,
-    ) -> CampaignEmail:
-        """Build the introductory email."""
-
-        body = (
-            f"If you are part of {audience}, improving your skills or "
-            f"finding a more structured learning path may be important to "
-            f"you. {product.product_name} is positioned as an option worth "
-            "reviewing carefully. Before making a decision, it is useful to "
-            "understand who the product is for, what the available market "
-            "signals suggest, and whether it matches your goals."
-        )
-
-        return CampaignEmail(
-            sequence_number=sequence_number,
-            subject=(
-                f"Is {product.product_name} "
-                "right for you?"
-            ),
-            preview_text=(
-                "A practical introduction before you decide."
-            ),
-            purpose="Introduction",
-            body=self._apply_tone(
-                text=body,
-                tone=tone,
-            ),
-            call_to_action=self._build_call_to_action(
-                product=product,
-                primary_goal=primary_goal,
-            ),
-        )
-
-    def _build_problem_email(
-        self,
-        *,
-        sequence_number: int,
-        product: DiscoveryProduct,
-        analysis: ProductAnalysis,
-        audience: str,
-        tone: str,
-        primary_goal: str,
-    ) -> CampaignEmail:
-        """Build the audience-problem email."""
-
-        body = (
-            "Choosing a course or digital product can be difficult when "
-            "there are many alternatives and limited reliable information. "
-            f"For {audience}, the most important step is comparing the "
-            "curriculum, delivery format, expected outcomes, price, and "
-            f"refund terms. {product.product_name} currently has an "
-            f"opportunity score of {product.opportunity_score:.1f}/100, "
-            "but this score should support your research rather than replace "
-            "your own review."
-        )
-
-        return CampaignEmail(
-            sequence_number=sequence_number,
-            subject=(
-                "What should you check before "
-                "choosing a course?"
-            ),
-            preview_text=(
-                "Use these practical points to compare your options."
-            ),
-            purpose="Problem awareness",
-            body=self._apply_tone(
-                text=body,
-                tone=tone,
-            ),
-            call_to_action=self._build_call_to_action(
-                product=product,
-                primary_goal=primary_goal,
-            ),
-        )
-
-    def _build_value_email(
-        self,
-        *,
-        sequence_number: int,
-        product: DiscoveryProduct,
-        analysis: ProductAnalysis,
-        audience: str,
-        tone: str,
-        primary_goal: str,
-    ) -> CampaignEmail:
-        """Build the product-value email."""
-
-        strengths = self._join_items(
-            analysis.strengths
-        )
-
-        body = (
-            f"The current Filtrify analysis identifies these strengths for "
-            f"{product.product_name}: {strengths}. The product is priced at "
-            f"R$ {product.price:,.2f}. Market information also indicates "
-            f"approximately {product.search_volume:,} monthly searches and "
-            f"a Google Trend score of "
-            f"{product.google_trend_score:.0f}/100. These figures do not "
-            "guarantee a result, but they provide useful context when "
-            "evaluating market interest."
-        )
-
-        return CampaignEmail(
-            sequence_number=sequence_number,
-            subject=(
-                f"What stands out about "
-                f"{product.product_name}?"
-            ),
-            preview_text=(
-                "Review the product and market signals."
-            ),
-            purpose="Value and benefits",
-            body=self._apply_tone(
-                text=body,
-                tone=tone,
-            ),
-            call_to_action=self._build_call_to_action(
-                product=product,
-                primary_goal=primary_goal,
-            ),
-        )
-
-    def _build_objection_email(
-        self,
-        *,
-        sequence_number: int,
-        product: DiscoveryProduct,
-        analysis: ProductAnalysis,
-        audience: str,
-        tone: str,
-        primary_goal: str,
-    ) -> CampaignEmail:
-        """Build the objection-handling email."""
-
-        weaknesses = self._join_items(
-            analysis.weaknesses
-        )
-
-        body = (
-            "A responsible decision should consider possible limitations as "
-            f"well as benefits. The current analysis highlights: "
-            f"{weaknesses}. The recorded refund rate is "
-            f"{product.refund_rate:.1f}%. Before purchasing, check the "
-            "official product page, refund conditions, instructor details, "
-            "course contents, and whether the offer suits your current skill "
-            "level and objectives."
-        )
-
-        return CampaignEmail(
-            sequence_number=sequence_number,
-            subject=(
-                f"Important points to consider before "
-                f"buying {product.product_name}"
-            ),
-            preview_text=(
-                "Review the risks and limitations before deciding."
-            ),
-            purpose="Objection handling",
-            body=self._apply_tone(
-                text=body,
-                tone=tone,
-            ),
-            call_to_action=self._build_call_to_action(
-                product=product,
-                primary_goal=primary_goal,
-            ),
-        )
-
-    def _build_decision_email(
-        self,
-        *,
-        sequence_number: int,
-        product: DiscoveryProduct,
-        analysis: ProductAnalysis,
-        audience: str,
-        tone: str,
-        primary_goal: str,
-    ) -> CampaignEmail:
-        """Build the final decision email."""
-
-        recommendations = self._join_items(
-            analysis.recommendations
-        )
-
-        body = (
-            f"Based on the available data, {product.product_name} has "
-            f"{analysis.commercial_potential.lower()} commercial potential. "
-            f"The estimated probability of success is "
-            f"{analysis.probability_of_success:.1f}%, with an analysis "
-            f"confidence of {analysis.confidence_score:.1f}%. These figures "
-            "are estimates rather than guarantees. Recommended next steps "
-            f"include: {recommendations}. Review the official information "
-            "and make a decision based on your own needs, budget, and goals."
-        )
-
-        return CampaignEmail(
-            sequence_number=sequence_number,
-            subject=(
-                f"Should you consider "
-                f"{product.product_name}?"
-            ),
-            preview_text=(
-                "A final checklist before making your decision."
-            ),
-            purpose="Decision and conversion",
-            body=self._apply_tone(
-                text=body,
-                tone=tone,
-            ),
-            call_to_action=self._build_call_to_action(
-                product=product,
-                primary_goal=primary_goal,
-            ),
-        )
+        parts = url.split("/")
+        return len(parts) > 2 and "." in parts[2] and " " not in url
 
     @staticmethod
+    def _positive_number(value: Any) -> bool:
+        if value is None or isinstance(value, bool):
+            return False
+
+        try:
+            return float(value) > 0
+        except (TypeError, ValueError, OverflowError):
+            return False
+
+    def _build_email(
+        self,
+        *,
+        sequence_number: int,
+        stage: str,
+        product: DiscoveryProduct,
+        audience: str,
+        tone: str,
+        goal: str,
+    ) -> CampaignEmail:
+        name = self._clean(product.product_name) or "this product"
+        description = self._clean(
+            getattr(product, "description", None)
+        )
+        category = self._clean(
+            getattr(product, "category", None)
+        )
+
+        if stage == "introduction":
+            subject = f"Considering {name}? Start with these questions"
+            preview = "A useful starting point for evaluating the offer."
+            purpose = "Introduction"
+
+            body = (
+                f"Hello,\n\n"
+                f"If you are exploring {name}, it helps to know "
+                "what you are actually getting before you commit.\n\n"
+                "Start with three questions:\n"
+                "- What does the product include?\n"
+                "- Who is it intended for?\n"
+                "- What are the total costs and conditions?\n\n"
+                "A careful review can help you decide whether "
+                "the offer fits your needs."
+            )
+
+        elif stage == "evaluation":
+            subject = f"How to evaluate {name} before buying"
+            preview = "A practical checklist to compare your options."
+            purpose = "Product evaluation"
+
+            category_line = (
+                f"The product is listed under {category}. "
+                if category
+                else ""
+            )
+
+            body = (
+                f"Hello,\n\n"
+                f"Before choosing {name}, compare the offer "
+                "with your own requirements.\n\n"
+                f"{category_line}"
+                "Look for a clear description of the features, "
+                "delivery method, support, current pricing "
+                "and refund terms.\n\n"
+                "If important details are missing, ask the seller "
+                "for clarification. You should not have to guess "
+                "what a purchase includes."
+            )
+
+        elif stage == "value":
+            subject = f"What do you actually get with {name}?"
+            preview = "Separate confirmed features from open questions."
+            purpose = "Value and benefits"
+
+            if description:
+                product_details = (
+                    "The available product description states:\n"
+                    f"{description}\n\n"
+                    "These details come from the product record "
+                    "and have not been independently verified."
+                )
+            else:
+                product_details = (
+                    "The current product record does not provide "
+                    "enough detail to verify specific features "
+                    "or benefits."
+                )
+
+            body = (
+                f"Hello,\n\n"
+                f"One way to assess {name} is to focus on "
+                "what the offer includes rather than relying "
+                "on promotional language.\n\n"
+                f"{product_details}\n\n"
+                "Check the official description, compare alternatives "
+                "and look for independent evidence before deciding."
+            )
+
+        elif stage == "concerns":
+            subject = f"Questions worth asking about {name}"
+            preview = "Pricing, refunds and other details to verify."
+            purpose = "Objection handling"
+
+            if self._positive_number(
+                getattr(product, "price", None)
+            ):
+                pricing = (
+                    "A price is recorded in the product data, "
+                    "but its currency and current validity "
+                    "must be confirmed at checkout."
+                )
+            else:
+                pricing = (
+                    "The current selling price has not been verified."
+                )
+
+            body = (
+                f"Hello,\n\n"
+                f"Still comparing options for {name}? "
+                "A few checks may help:\n\n"
+                f"- Pricing: {pricing}\n"
+                "- Refunds: What are the current refund conditions?\n"
+                "- Support: How can you contact the seller?\n"
+                "- Suitability: Are there prerequisites or limitations?\n\n"
+                "Missing information does not automatically mean "
+                "an offer is good or bad. It means more verification "
+                "is needed."
+            )
+
+        else:
+            subject = f"Is {name} the right choice for you?"
+            preview = "A final checklist before making a decision."
+            purpose = "Decision and conversion"
+
+            body = (
+                f"Hello,\n\n"
+                f"Before making a final decision about {name}, "
+                "consider the following:\n\n"
+                "- Does the product address your actual needs?\n"
+                "- Have you verified its features and seller claims?\n"
+                "- Do you understand the price and payment terms?\n"
+                "- Have you reviewed the refund policy?\n"
+                "- Have you compared relevant alternatives?\n\n"
+                "If the answers are clear and the offer fits "
+                "your goals, you can review the official details "
+                "and decide on your next step."
+            )
+
+        body = self._apply_tone(body, tone)
+
+        disclosure = (
+            "\n\nAffiliate disclosure: This message may contain "
+            "affiliate links. If you purchase through one of "
+            "those links, the sender may earn a commission. "
+            "Review this wording to match the actual relationship."
+        )
+
+        body += disclosure
+
+        return CampaignEmail(
+            sequence_number=sequence_number,
+            subject=subject,
+            preview_text=preview,
+            purpose=purpose,
+            body=body,
+            call_to_action=self._build_call_to_action(
+                product=product,
+                primary_goal=goal,
+            ),
+        )
+
+    @classmethod
     def _build_call_to_action(
+        cls,
         *,
         product: DiscoveryProduct,
         primary_goal: str,
     ) -> str:
-        """Build the email call to action."""
+        name = cls._clean(product.product_name) or "the product"
+
+        affiliate_url = getattr(product, "affiliate_url", None)
+        sales_url = getattr(product, "sales_page_url", None)
 
         if primary_goal == "Generate Leads":
             return (
-                "Get the free guide and continue your research."
+                "Request more information. "
+                "[Add a verified lead-capture link before sending.]"
             )
 
-        if primary_goal == "Promote Product":
+        if cls._has_url(affiliate_url):
             return (
-                f"Explore {product.product_name} and review the details."
+                f"Review the {name} offer: "
+                f"{affiliate_url.strip()}"
+            )
+
+        if cls._has_url(sales_url):
+            return (
+                f"Review the official {name} product page: "
+                f"{sales_url.strip()} "
+                "[No affiliate tracking link is configured.]"
             )
 
         return (
-            f"Visit the official {product.product_name} sales page."
+            f"Learn more about {name}. "
+            "[Add and verify the destination link before sending.]"
         )
+
+    @staticmethod
+    def _apply_tone(text: str, tone: str) -> str:
+        """Make a modest tone adjustment without adding new claims."""
+
+        if tone == "Friendly":
+            return text.replace(
+                "Hello,\n\n",
+                "Hi there,\n\n",
+                1,
+            )
+
+        if tone == "Educational":
+            return text.replace(
+                "Hello,\n\n",
+                "Hello,\n\nHere is a practical way to assess "
+                "the offer.\n\n",
+                1,
+            )
+
+        if tone == "Persuasive":
+            return text.replace(
+                "Hello,\n\n",
+                "Hello,\n\nA little research now can help "
+                "you make a more confident decision.\n\n",
+                1,
+            )
+
+        return text
 
     @staticmethod
     def _build_strategy_summary(
@@ -569,71 +462,14 @@ class EmailSequenceService(BaseContentGenerator):
         email_count: int,
         primary_goal: str,
     ) -> str:
-        """Build the sequence strategy summary."""
-
         return (
             f"This {email_count}-email sequence introduces "
-            f"{product.product_name}, explains the reader's decision problem, "
-            "presents available product and market signals, addresses likely "
-            f"concerns, and finishes with the goal: {primary_goal}. "
-            "Review all claims and links before sending the campaign."
-        )
-
-    @staticmethod
-    def _apply_tone(
-        *,
-        text: str,
-        tone: str,
-    ) -> str:
-        """Apply a simple deterministic tone adjustment."""
-
-        if tone == "Friendly":
-            return (
-                "Here is a simple way to look at it. "
-                f"{text}"
-            )
-
-        if tone == "Persuasive":
-            return (
-                f"{text} If the offer matches your goals, it may deserve "
-                "a closer look."
-            )
-
-        if tone == "Educational":
-            return (
-                "To understand the decision clearly, "
-                f"{text}"
-            )
-
-        return text
-
-    @staticmethod
-    def _join_items(
-        items: list[str],
-    ) -> str:
-        """Join analysis items into readable text."""
-
-        cleaned_items = [
-            str(item).strip().rstrip(".")
-            for item in items
-            if str(item).strip()
-        ]
-
-        if not cleaned_items:
-            return "no major points were identified"
-
-        if len(cleaned_items) == 1:
-            return cleaned_items[0]
-
-        if len(cleaned_items) == 2:
-            return (
-                f"{cleaned_items[0]} and "
-                f"{cleaned_items[1]}"
-            )
-
-        return (
-            ", ".join(
-                cleaned_items[:-1]
-            )
-            + f", and {cleaned_items[-1]}"
+            f"{product.product_name}, helps readers evaluate "
+            "the offer, addresses relevant concerns where "
+            "the sequence length permits, and ends with "
+            f"a decision-focused message. Goal: {primary_goal}. "
+            "Before sending, verify product claims and links, "
+            "confirm recipient consent, add sender identification "
+            "and a working unsubscribe mechanism, and review "
+            "applicable email-marketing requirements."
         )

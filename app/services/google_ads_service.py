@@ -1,36 +1,25 @@
-"""Generate Google Ads campaign assets from product intelligence.
 
-This service creates:
-
-- responsive-search-ad headlines;
-- ad descriptions;
-- target keywords;
-- negative keywords;
-- a recommended call to action.
-
-CTA means Call to Action.
-"""
+"""Generate evidence-aware Google Ads assets for YAffiliate."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from app.models.discovery_product import (
-    DiscoveryProduct,
-)
-from app.models.google_ads_campaign import (
-    GoogleAdsAsset,
-)
-from app.models.product_analysis import (
-    ProductAnalysis,
-)
-from app.services.base_content_generator import (
-    BaseContentGenerator,
-)
+from app.models.discovery_product import DiscoveryProduct
+from app.models.google_ads_campaign import GoogleAdsAsset
+from app.models.product_analysis import ProductAnalysis
+from app.services.base_content_generator import BaseContentGenerator
 
 
 class GoogleAdsService(BaseContentGenerator):
-    """Generate a structured Google Ads campaign."""
+    """
+    Generate draft responsive search ads.
+
+    RSA = Responsive Search Ad.
+    CTA = Call to Action.
+
+    Assets are suggestions, not approved or published Google Ads.
+    """
 
     VALID_TONES = {
         "Professional",
@@ -47,6 +36,8 @@ class GoogleAdsService(BaseContentGenerator):
 
     MAX_HEADLINE_LENGTH = 30
     MAX_DESCRIPTION_LENGTH = 90
+    MAX_HEADLINES = 15
+    MAX_DESCRIPTIONS = 4
 
     def generate(
         self,
@@ -61,12 +52,13 @@ class GoogleAdsService(BaseContentGenerator):
         campaign_name: str | None = None,
         **kwargs: Any,
     ) -> GoogleAdsAsset:
-        """Generate one complete Google Ads campaign."""
+        """Return a structured Google Ads draft."""
 
-        self._validate_inputs(
-            product=product,
-            analysis=analysis,
-        )
+        self._validate_inputs(product=product, analysis=analysis)
+
+        product_name = self._clean(product.product_name)
+        if not product_name:
+            raise ValueError("A product name is required.")
 
         resolved_keyword = self._resolve_keyword(
             product=product,
@@ -74,24 +66,17 @@ class GoogleAdsService(BaseContentGenerator):
             keyword=keyword,
         )
 
-        resolved_audience = self._resolve_audience(
+        audience = self._resolve_audience(
             analysis=analysis,
             target_audience=target_audience,
         )
 
-        resolved_tone = self._resolve_tone(
-            tone
-        )
+        resolved_tone = self._resolve_tone(tone)
+        resolved_goal = self._resolve_goal(primary_goal)
 
-        resolved_goal = self._resolve_goal(
-            primary_goal
-        )
-
-        resolved_campaign_name = (
-            self._resolve_campaign_name(
-                product=product,
-                campaign_name=campaign_name,
-            )
+        name = (
+            self._clean(campaign_name)
+            or f"{product_name} Google Ads Campaign"
         )
 
         headlines = self._build_headlines(
@@ -103,7 +88,7 @@ class GoogleAdsService(BaseContentGenerator):
         descriptions = self._build_descriptions(
             product=product,
             analysis=analysis,
-            audience=resolved_audience,
+            audience=audience,
             tone=resolved_tone,
         )
 
@@ -112,31 +97,21 @@ class GoogleAdsService(BaseContentGenerator):
             keyword=resolved_keyword,
         )
 
-        negative_keywords = (
-            self._build_negative_keywords()
-        )
+        negative_keywords = self._build_negative_keywords()
 
-        call_to_action = self._build_call_to_action(
+        cta = self._build_call_to_action(
             product=product,
             primary_goal=resolved_goal,
         )
 
         return GoogleAdsAsset(
-            campaign_name=resolved_campaign_name,
-            headlines=tuple(
-                headlines
-            ),
-            descriptions=tuple(
-                descriptions
-            ),
-            keywords=tuple(
-                keywords
-            ),
-            negative_keywords=tuple(
-                negative_keywords
-            ),
-            call_to_action=call_to_action,
-            target_audience=resolved_audience,
+            campaign_name=name,
+            headlines=tuple(headlines),
+            descriptions=tuple(descriptions),
+            keywords=tuple(keywords),
+            negative_keywords=tuple(negative_keywords),
+            call_to_action=cta,
+            target_audience=audience,
         )
 
     @staticmethod
@@ -145,492 +120,296 @@ class GoogleAdsService(BaseContentGenerator):
         product: DiscoveryProduct,
         analysis: ProductAnalysis,
     ) -> None:
-        """Validate the required generator inputs."""
-
-        if not isinstance(
-            product,
-            DiscoveryProduct,
-        ):
+        if not isinstance(product, DiscoveryProduct):
             raise TypeError(
                 "product must be a DiscoveryProduct instance."
             )
 
-        if not isinstance(
-            analysis,
-            ProductAnalysis,
-        ):
+        if not isinstance(analysis, ProductAnalysis):
             raise TypeError(
                 "analysis must be a ProductAnalysis instance."
             )
 
     @staticmethod
+    def _clean(value: Any) -> str:
+        if value is None:
+            return ""
+        return " ".join(str(value).split())
+
+    @classmethod
     def _resolve_keyword(
+        cls,
         *,
         product: DiscoveryProduct,
         target_keyword: str | None,
         keyword: str | None,
     ) -> str:
-        """Resolve the main advertising keyword."""
-
-        possible_values = [
+        for candidate in (
             target_keyword,
             keyword,
             product.product_name,
-        ]
+        ):
+            cleaned = cls._clean(candidate)
+            if cleaned:
+                return cleaned
 
-        for value in possible_values:
-            if (
-                isinstance(
-                    value,
-                    str,
-                )
-                and value.strip()
-            ):
-                return value.strip()
+        raise ValueError("A Google Ads target keyword is required.")
 
-        raise ValueError(
-            "A Google Ads target keyword is required."
-        )
-
-    @staticmethod
+    @classmethod
     def _resolve_audience(
+        cls,
         *,
         analysis: ProductAnalysis,
         target_audience: str | None,
     ) -> str:
-        """Resolve the intended campaign audience."""
+        supplied = cls._clean(target_audience)
+        if supplied:
+            return supplied
 
-        if (
-            target_audience
-            and target_audience.strip()
-        ):
-            return target_audience.strip()
-
-        audience_items = [
-            str(item).strip()
-            for item in analysis.target_audience
-            if str(item).strip()
+        items = getattr(analysis, "target_audience", None) or []
+        cleaned = [
+            cls._clean(item)
+            for item in items
+            if cls._clean(item)
         ]
 
-        if audience_items:
-            return ", ".join(
-                audience_items
-            )
-
-        return "people interested in this product"
-
-    def _resolve_tone(
-        self,
-        tone: str,
-    ) -> str:
-        """Validate and normalize the requested tone."""
-
-        cleaned_tone = (
-            tone.strip().title()
-            if tone
-            else "Professional"
+        return (
+            ", ".join(cleaned)
+            if cleaned
+            else "people researching this product"
         )
 
-        if cleaned_tone not in self.VALID_TONES:
-            return "Professional"
+    @classmethod
+    def _resolve_tone(cls, tone: str) -> str:
+        supplied = cls._clean(tone)
 
-        return cleaned_tone
+        for valid in cls.VALID_TONES:
+            if supplied.casefold() == valid.casefold():
+                return valid
 
-    def _resolve_goal(
-        self,
-        primary_goal: str,
-    ) -> str:
-        """Validate and normalize the conversion goal."""
+        return "Professional"
 
-        cleaned_goal = (
-            primary_goal.strip().title()
-            if primary_goal
-            else "Visit Sales Page"
-        )
+    @classmethod
+    def _resolve_goal(cls, goal: str) -> str:
+        supplied = cls._clean(goal)
 
-        for valid_goal in self.VALID_GOALS:
-            if (
-                valid_goal.casefold()
-                == cleaned_goal.casefold()
-            ):
-                return valid_goal
+        for valid in cls.VALID_GOALS:
+            if supplied.casefold() == valid.casefold():
+                return valid
 
         return "Visit Sales Page"
 
-    @staticmethod
-    def _resolve_campaign_name(
-        *,
-        product: DiscoveryProduct,
-        campaign_name: str | None,
-    ) -> str:
-        """Resolve the campaign display name."""
-
-        if (
-            campaign_name
-            and campaign_name.strip()
-        ):
-            return campaign_name.strip()
-
-        return (
-            f"{product.product_name} "
-            "Google Ads Campaign"
-        )
-
+    @classmethod
     def _build_headlines(
-        self,
+        cls,
         *,
         product: DiscoveryProduct,
         keyword: str,
         tone: str,
     ) -> list[str]:
-        """Build responsive-search-ad headlines."""
+        name = cls._clean(product.product_name)
+        topic = cls._clean(keyword)
 
-        product_name = (
-            product.product_name.strip()
-        )
-
-        keyword_topic = self._extract_keyword_topic(
-            keyword
-        )
-
-        headline_candidates = [
-            product_name,
-            f"{keyword} Online",
-            f"Learn {keyword_topic}",
-            f"Improve Your {keyword_topic}",
-            f"Master {keyword_topic}",
-            f"{keyword} for Beginners",
-            f"Practical {keyword_topic}",
-            f"Explore {product_name}",
-            f"Review {product_name}",
-            "Build Better Skills",
-            "Start Learning Today",
-            "Compare the Official Offer",
-            "See Course Details",
-            "Develop Practical Skills",
-            f"Is {product_name} Worth It?",
+        # Use only claims that can be made without knowing
+        # unverified product features or outcomes.
+        candidates = [
+            name,
+            f"Explore {name}",
+            f"Discover {name}",
+            f"{name} Details",
+            f"{name} Information",
+            f"{name} Overview",
+            f"{name} Review Guide",
+            f"Considering {name}?",
+            f"Compare {name}",
+            f"About {name}",
+            f"Explore {topic}",
+            f"{topic} Options",
+            f"{topic} Information",
+            "Review Before You Buy",
+            "Explore Product Details",
+            "Compare Your Options",
+            "Check the Product Details",
+            "Make an Informed Choice",
+            "Understand the Offer",
+            "Explore the Available Info",
+            "See What to Consider",
         ]
 
         if tone == "Friendly":
-            headline_candidates.extend(
-                [
-                    "Ready to Learn More?",
-                    "Find the Right Course",
-                ]
-            )
-
+            candidates.extend([
+                "Curious? Learn More",
+                "Take a Closer Look",
+            ])
         elif tone == "Persuasive":
-            headline_candidates.extend(
-                [
-                    "Take Your Skills Further",
-                    "Start Improving Today",
-                ]
-            )
-
+            candidates.extend([
+                "Find Out More Today",
+                "Explore Your Options",
+            ])
         elif tone == "Educational":
-            headline_candidates.extend(
-                [
-                    "Understand the Course",
-                    "Learn Before You Decide",
-                ]
-            )
+            candidates.extend([
+                "Learn Before You Decide",
+                "Understand Your Options",
+            ])
 
-        return self._normalize_limited_items(
-            headline_candidates,
-            maximum_length=(
-                self.MAX_HEADLINE_LENGTH
-            ),
-            maximum_items=15,
+        return cls._normalize_limited_items(
+            candidates,
+            maximum_length=cls.MAX_HEADLINE_LENGTH,
+            maximum_items=cls.MAX_HEADLINES,
         )
 
+    @classmethod
     def _build_descriptions(
-            self,
-            *,
-            product: DiscoveryProduct,
-            analysis: ProductAnalysis,
-            audience: str,
-            tone: str,
+        cls,
+        *,
+        product: DiscoveryProduct,
+        analysis: ProductAnalysis,
+        audience: str,
+        tone: str,
     ) -> list[str]:
-        """Build complete Google Ads descriptions within 90 characters."""
+        name = cls._clean(product.product_name)
 
-        product_name = product.product_name.strip()
-
-        description_candidates = [
-            (
-                f"Explore {product_name}. Review the official offer "
-                "before deciding."
-            ),
-            (
-                "Compare the course details with your learning goals."
-            ),
-            (
-                f"Review the strengths and risks of {product_name} "
-                "before purchasing."
-            ),
-            (
-                f"Commercial potential: "
-                f"{analysis.commercial_potential.lower()}. "
-                "Verify all claims."
-            ),
+        candidates = [
+            f"Explore {name}. Review the available product details before deciding.",
+            "Compare features, pricing and terms to see whether the offer fits your needs.",
+            "Check the seller's information, conditions and relevant alternatives.",
+            "Take a closer look at the offer and make an informed purchasing decision.",
+            "Review product information and consider the questions that matter to you.",
+            "Explore the available details before choosing your next step.",
         ]
 
         if tone == "Friendly":
-            description_candidates[1] = (
-                "Take a simple look at the course and see whether it suits you."
+            candidates.insert(
+                1,
+                "Curious about the offer? Explore the details and compare your options.",
             )
-
         elif tone == "Persuasive":
-            description_candidates[1] = (
-                "Review the official offer and take the next step toward your goals."
+            candidates.insert(
+                1,
+                "Explore the offer today and decide whether it fits your needs.",
             )
-
         elif tone == "Educational":
-            description_candidates[1] = (
-                "Compare the product, audience and price before making a decision."
+            candidates.insert(
+                1,
+                "Understand the offer, check the terms and compare relevant alternatives.",
             )
 
-        return self._normalize_limited_items(
-            description_candidates,
-            maximum_length=self.MAX_DESCRIPTION_LENGTH,
-            maximum_items=4,
+        return cls._normalize_limited_items(
+            candidates,
+            maximum_length=cls.MAX_DESCRIPTION_LENGTH,
+            maximum_items=cls.MAX_DESCRIPTIONS,
         )
 
-    @staticmethod
+    @classmethod
     def _build_keywords(
+        cls,
         *,
         product: DiscoveryProduct,
         keyword: str,
     ) -> list[str]:
-        """Build campaign keyword suggestions."""
+        name = cls._clean(product.product_name)
+        topic = cls._clean(keyword)
 
-        product_name = (
-            product.product_name.strip()
-        )
-
-        keyword_topic = (
-            GoogleAdsService._extract_keyword_topic(
-                keyword
-            )
-        )
-
-        keyword_candidates = [
-            keyword,
-            product_name,
-            f"{keyword} online",
-            f"learn {keyword_topic}",
-            f"best {keyword}",
-            f"{keyword_topic} training",
-            f"{keyword_topic} classes",
-            f"{keyword} for beginners",
-            f"advanced {keyword_topic}",
-            f"{product_name} review",
-            f"{product_name} price",
-            f"{product_name} course",
-            f"{product_name} official",
-            f"is {product_name} worth it",
-            f"buy {product_name}",
-            f"{keyword_topic} certification",
-            f"online {keyword_topic} training",
-            f"practical {keyword_topic} course",
-            f"professional {keyword_topic} course",
-            f"{keyword_topic} skills course",
+        # These are ideas, not validated search-volume data.
+        candidates = [
+            name,
+            topic,
+            f"{name} review",
+            f"{name} reviews",
+            f"{name} price",
+            f"{name} pricing",
+            f"{name} details",
+            f"{name} information",
+            f"{name} official website",
+            f"{name} alternatives",
+            f"{name} comparison",
+            f"is {name} worth it",
+            f"buy {name}",
+            f"{topic} options",
+            f"{topic} products",
+            f"{topic} comparison",
         ]
 
-        return GoogleAdsService._deduplicate_items(
-            keyword_candidates
-        )
+        return cls._deduplicate_items(candidates)
 
     @staticmethod
     def _build_negative_keywords() -> list[str]:
-        """Build general negative-keyword suggestions."""
+        """
+        Conservative negative-keyword suggestions.
 
+        Review every exclusion before uploading to Google Ads.
+        Do not automatically exclude review or complaint searches.
+        """
         return [
-            "free",
             "torrent",
-            "crack",
             "cracked",
             "pirated",
-            "download free",
-            "pdf free",
-            "coupon free",
             "illegal download",
-            "refund scam",
-            "complaints",
-            "jobs",
-            "salary",
-            "template",
-            "software download",
-            "youtube free",
-            "reddit free",
-            "wiki",
-            "definition",
-            "meaning",
         ]
 
-    @staticmethod
+    @classmethod
     def _build_call_to_action(
+        cls,
         *,
         product: DiscoveryProduct,
         primary_goal: str,
     ) -> str:
-        """Build the recommended Google Ads call to action."""
-
         if primary_goal == "Generate Leads":
-            return "Get the Free Guide"
+            return "Request More Information"
 
         if primary_goal == "Promote Product":
-            return (
-                f"Explore {product.product_name}"
-            )
+            return "Explore Product Details"
 
-        return "View the Official Offer"
+        return "View Product Details"
 
-    @staticmethod
+    @classmethod
     def _normalize_limited_items(
+        cls,
         items: list[str],
         *,
         maximum_length: int,
         maximum_items: int,
     ) -> list[str]:
-        """Clean, shorten and deduplicate limited advertising assets."""
+        """
+        Keep complete phrases within the character limit.
 
-        normalized_items: list[str] = []
-        seen_items: set[str] = set()
+        Do not cut sentences in the middle of a word.
+        Oversized candidates are skipped instead.
+        """
+        result = []
+        seen = set()
 
         for item in items:
-            cleaned_item = " ".join(
-                str(item).split()
-            ).strip()
+            cleaned = cls._clean(item)
 
-            if not cleaned_item:
+            if not cleaned or len(cleaned) > maximum_length:
                 continue
 
-            cleaned_item = (
-                GoogleAdsService._shorten_without_cutting_words(
-                    cleaned_item,
-                    maximum_length=maximum_length,
-                )
-            )
-
-            normalized_key = (
-                cleaned_item.casefold()
-            )
-
-            if (
-                not cleaned_item
-                or normalized_key in seen_items
-            ):
+            key = cleaned.casefold()
+            if key in seen:
                 continue
 
-            seen_items.add(
-                normalized_key
-            )
+            seen.add(key)
+            result.append(cleaned)
 
-            normalized_items.append(
-                cleaned_item
-            )
-
-            if (
-                len(normalized_items)
-                >= maximum_items
-            ):
+            if len(result) >= maximum_items:
                 break
 
-        return normalized_items
+        return result
 
-    @staticmethod
-    def _shorten_without_cutting_words(
-        text: str,
-        *,
-        maximum_length: int,
-    ) -> str:
-        """Shorten advertising text without cutting through a word."""
-
-        cleaned_text = " ".join(
-            text.split()
-        ).strip()
-
-        if len(cleaned_text) <= maximum_length:
-            return cleaned_text
-
-        shortened_text = cleaned_text[
-            :maximum_length + 1
-        ]
-
-        if " " in shortened_text:
-            shortened_text = shortened_text.rsplit(
-                " ",
-                1,
-            )[0]
-
-        return shortened_text.rstrip(
-            " ,.;:-"
-        )
-
-    @staticmethod
-    def _extract_keyword_topic(
-        keyword: str,
-    ) -> str:
-        """Remove repeated course-related wording from a keyword."""
-
-        cleaned_keyword = " ".join(
-            keyword.split()
-        ).strip()
-
-        lowered_keyword = (
-            cleaned_keyword.casefold()
-        )
-
-        removable_endings = (
-            " course",
-            " training",
-            " classes",
-            " class",
-        )
-
-        for ending in removable_endings:
-            if lowered_keyword.endswith(
-                ending
-            ):
-                topic = cleaned_keyword[
-                    :-len(ending)
-                ].strip()
-
-                if topic:
-                    return topic
-
-        return cleaned_keyword
-
-    @staticmethod
-    def _deduplicate_items(
-        items: list[str],
-    ) -> list[str]:
-        """Remove empty and repeated keyword values."""
-
-        normalized_items: list[str] = []
-        seen_items: set[str] = set()
+    @classmethod
+    def _deduplicate_items(cls, items: list[str]) -> list[str]:
+        result = []
+        seen = set()
 
         for item in items:
-            cleaned_item = " ".join(
-                str(item).split()
-            ).strip()
+            cleaned = cls._clean(item)
+            key = cleaned.casefold()
 
-            normalized_key = (
-                cleaned_item.casefold()
-            )
-
-            if (
-                not cleaned_item
-                or normalized_key in seen_items
-            ):
+            if not cleaned or key in seen:
                 continue
 
-            seen_items.add(
-                normalized_key
-            )
+            seen.add(key)
+            result.append(cleaned)
 
-            normalized_items.append(
-                cleaned_item
-            )
-
-        return normalized_items
+        return result

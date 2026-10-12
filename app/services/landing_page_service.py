@@ -1,35 +1,27 @@
+
+"""Generate evidence-aware affiliate landing pages for YAffiliate."""
+
 from __future__ import annotations
 
 from typing import Any
 
 from app.models.discovery_product import DiscoveryProduct
-from app.models.landing_page import (
-    LandingPage,
-    LandingPageSection,
-)
+from app.models.landing_page import LandingPage, LandingPageSection
 from app.models.product_analysis import ProductAnalysis
-from app.services.base_content_generator import (
-    BaseContentGenerator,
-)
+from app.services.base_content_generator import BaseContentGenerator
 
 
 class LandingPageService(BaseContentGenerator):
     """
-    Generate structured landing-page copy from product intelligence.
+    Build structured, buyer-focused landing-page copy.
 
-    CTA = Call to Action.
+    CTA means Call to Action: a prompt encouraging a visitor
+    to take a next step.
 
-    A Call to Action is the text or button that encourages
-    the visitor to take the next step, such as:
-    - Buy now
-    - Learn more
-    - Start today
-    - View the official offer
+    FAQ means Frequently Asked Questions.
 
-    FAQ = Frequently Asked Questions.
-
-    FAQ sections answer common visitor concerns and can improve
-    trust before the visitor clicks the CTA.
+    This generator uses deterministic templates. It does not
+    verify product claims or publish a working website.
     """
 
     VALID_TONES = {
@@ -55,74 +47,68 @@ class LandingPageService(BaseContentGenerator):
         tone: str = "Persuasive",
         **kwargs: Any,
     ) -> LandingPage:
-        """
-        Generate one complete landing page.
+        """Return a landing-page draft in the existing data model."""
 
-        target_audience:
-        The group of people the page is designed to persuade.
-
-        primary_goal:
-        The main action the page should encourage.
-
-        tone:
-        The intended writing style.
-
-        kwargs:
-        Extra keyword arguments accepted through the shared
-        BaseContentGenerator contract.
-        """
-        resolved_audience = self._resolve_audience(
+        audience = self._resolve_audience(
             analysis=analysis,
             target_audience=target_audience,
         )
+        goal = self._resolve_goal(primary_goal)
+        resolved_tone = self._resolve_tone(tone)
 
-        resolved_goal = self._resolve_goal(
-            primary_goal
+        name = self._clean(product.product_name, "This product")
+        description = self._clean(product.description)
+        category = self._clean(product.category)
+
+        page_title = f"{name} | Product Information and Buyer Guide"
+
+        meta_description = (
+            f"Explore {name}, review available information, "
+            "check important product details and decide "
+            "whether the offer fits your needs."
         )
 
-        resolved_tone = self._resolve_tone(
-            tone
-        )
-
-        page_title = self._build_page_title(
-            product=product,
-        )
-
-        meta_description = self._build_meta_description(
-            product=product,
-            audience=resolved_audience,
-        )
-
-        hero_headline = self._build_hero_headline(
-            product=product,
+        hero_headline = self._hero_headline(
+            name=name,
             tone=resolved_tone,
         )
 
-        hero_subheadline = self._build_hero_subheadline(
-            product=product,
-            audience=resolved_audience,
-            analysis=analysis,
+        hero_subheadline = self._hero_subheadline(
+            name=name,
+            description=description,
+            audience=audience,
         )
 
-        primary_cta = self._build_primary_cta(
-            goal=resolved_goal,
-        )
+        primary_cta = self._primary_cta(goal)
 
         sections = self._build_sections(
+            name=name,
+            description=description,
+            category=category,
+            audience=audience,
             product=product,
-            analysis=analysis,
-            audience=resolved_audience,
+            goal=goal,
             tone=resolved_tone,
         )
 
-        final_cta_heading = (
-            f"Ready to explore {product.product_name}?"
-        )
+        final_cta_heading = f"Ready to learn more about {name}?"
 
-        final_cta_text = (
-            "Review the official offer, verify the product claims "
-            "and decide whether it matches your needs."
-        )
+        if goal == "Generate Leads":
+            final_cta_text = (
+                "Review the available product information. "
+                "A verified lead form and any promised resource "
+                "must be configured before this page goes live."
+            )
+        elif self._valid_url(product.sales_page_url):
+            final_cta_text = (
+                "Visit the official product page to confirm "
+                "current features, pricing, terms and availability."
+            )
+        else:
+            final_cta_text = (
+                "Confirm the official product page and seller "
+                "details before making a purchasing decision."
+            )
 
         final_cta_button = primary_cta
 
@@ -141,7 +127,7 @@ class LandingPageService(BaseContentGenerator):
         conversion_score = self._calculate_conversion_score(
             product=product,
             analysis=analysis,
-            audience=resolved_audience,
+            audience=audience,
             sections=sections,
             primary_cta=primary_cta,
         )
@@ -150,8 +136,8 @@ class LandingPageService(BaseContentGenerator):
             page_title=page_title,
             meta_description=meta_description,
             product_name=product.product_name,
-            target_audience=resolved_audience,
-            primary_goal=resolved_goal,
+            target_audience=audience,
+            primary_goal=goal,
             tone=resolved_tone,
             hero_headline=hero_headline,
             hero_subheadline=hero_subheadline,
@@ -165,345 +151,306 @@ class LandingPageService(BaseContentGenerator):
         )
 
     @staticmethod
+    def _clean(value: Any, fallback: str = "") -> str:
+        if value is None:
+            return fallback
+
+        result = " ".join(str(value).split())
+        return result or fallback
+
+    @staticmethod
+    def _valid_url(value: Any) -> bool:
+        """Basic URL check, not verification of a live destination."""
+        if not isinstance(value, str):
+            return False
+
+        url = value.strip().lower()
+
+        return (
+            url.startswith(("https://", "http://"))
+            and "." in url.split("/")[2]
+            and " " not in url
+        )
+
+    @classmethod
     def _resolve_audience(
+        cls,
         *,
         analysis: ProductAnalysis,
         target_audience: str | None,
     ) -> str:
-        if target_audience and target_audience.strip():
-            return target_audience.strip()
+        if isinstance(target_audience, str):
+            if target_audience.strip():
+                return target_audience.strip()
 
-        cleaned_audience = [
-            item.strip()
-            for item in analysis.target_audience
-            if item.strip()
+        candidates = getattr(analysis, "target_audience", None) or []
+
+        cleaned = [
+            cls._clean(item)
+            for item in candidates
+            if cls._clean(item)
         ]
 
-        if cleaned_audience:
-            return ", ".join(
-                cleaned_audience
-            )
+        if cleaned:
+            return ", ".join(cleaned)
 
-        return "people interested in this product"
+        return "people considering this type of product"
 
-    def _resolve_goal(
-        self,
-        primary_goal: str,
-    ) -> str:
-        cleaned_goal = (
-            primary_goal.strip().title()
-            if primary_goal
-            else "Visit Sales Page"
-        )
+    @classmethod
+    def _resolve_goal(cls, primary_goal: str) -> str:
+        supplied = str(primary_goal or "").strip()
 
-        for valid_goal in self.VALID_GOALS:
-            if valid_goal.casefold() == cleaned_goal.casefold():
-                return valid_goal
+        for goal in cls.VALID_GOALS:
+            if supplied.casefold() == goal.casefold():
+                return goal
 
         return "Visit Sales Page"
 
-    def _resolve_tone(
-        self,
-        tone: str,
-    ) -> str:
-        cleaned_tone = (
-            tone.strip().title()
-            if tone
-            else "Persuasive"
-        )
+    @classmethod
+    def _resolve_tone(cls, tone: str) -> str:
+        supplied = str(tone or "").strip()
 
-        if cleaned_tone not in self.VALID_TONES:
-            return "Persuasive"
+        for valid_tone in cls.VALID_TONES:
+            if supplied.casefold() == valid_tone.casefold():
+                return valid_tone
 
-        return cleaned_tone
+        return "Professional"
 
     @staticmethod
-    def _build_page_title(
-        *,
-        product: DiscoveryProduct,
-    ) -> str:
-        return (
-            f"{product.product_name}: "
-            "Benefits, Audience and Official Offer"
-        )
-
-    @staticmethod
-    def _build_meta_description(
-        *,
-        product: DiscoveryProduct,
-        audience: str,
-    ) -> str:
-        return (
-            f"Discover whether {product.product_name} is suitable "
-            f"for {audience}. Review its benefits, risks and official "
-            "offer before making a decision."
-        )
-
-    def _build_hero_headline(
-        self,
-        *,
-        product: DiscoveryProduct,
-        tone: str,
-    ) -> str:
-        base_headline = (
-            f"Build stronger skills with "
-            f"{product.product_name}"
-        )
-
+    def _hero_headline(*, name: str, tone: str) -> str:
         if tone == "Friendly":
-            return (
-                f"Ready to learn with "
-                f"{product.product_name}?"
-            )
-
-        if tone == "Professional":
-            return (
-                f"Advance your capabilities with "
-                f"{product.product_name}"
-            )
+            return f"Curious about {name}? Start here."
 
         if tone == "Educational":
-            return (
-                f"Discover what "
-                f"{product.product_name} can teach you"
-            )
+            return f"Understanding {name}: A Practical Buyer Guide"
 
-        return base_headline
+        if tone == "Persuasive":
+            return f"Explore {name} Before You Decide"
+
+        return f"{name}: Product Overview and Key Considerations"
 
     @staticmethod
-    def _build_hero_subheadline(
+    def _hero_subheadline(
         *,
-        product: DiscoveryProduct,
+        name: str,
+        description: str,
         audience: str,
-        analysis: ProductAnalysis,
     ) -> str:
+        if description:
+            return (
+                f"Explore the available details about {name}, "
+                "check the seller's claims and decide whether "
+                "this offer is right for you."
+            )
+
         return (
-            f"Designed for {audience}, "
-            f"{product.product_name} combines structured learning "
-            f"with {analysis.commercial_potential.lower()} commercial "
-            "potential and a focused path toward practical results."
+            f"Researching {name}? Review the information "
+            "currently available, identify what still needs "
+            "verification and compare your options."
         )
 
     @staticmethod
-    def _build_primary_cta(
-        *,
-        goal: str,
-    ) -> str:
+    def _primary_cta(goal: str) -> str:
         if goal == "Generate Leads":
-            return "Get the Free Guide"
+            return "Request More Information"
 
         if goal == "Promote Product":
-            return "Explore the Product"
+            return "Explore Product Details"
 
         return "View the Official Offer"
 
     def _build_sections(
         self,
         *,
-        product: DiscoveryProduct,
-        analysis: ProductAnalysis,
+        name: str,
+        description: str,
+        category: str,
         audience: str,
+        product: DiscoveryProduct,
+        goal: str,
         tone: str,
     ) -> list[LandingPageSection]:
-        strengths = [
-            item.rstrip(".")
-            for item in analysis.strengths
-            if item.strip()
+        """Build sections without inventing benefits or testimonials."""
+
+        if description:
+            overview = description
+        elif category:
+            overview = (
+                f"{name} is listed in the {category} category. "
+                "The available record does not yet provide "
+                "enough information to confirm its specific "
+                "features or outcomes."
+            )
+        else:
+            overview = (
+                f"{name} is currently being researched. "
+                "Its features, delivery method and advertised "
+                "results still need to be verified."
+            )
+
+        benefits = [
+            "Review the seller's description of the product",
+            "Confirm which features or services are included",
+            "Compare the offer with relevant alternatives",
+            "Check whether the product matches your goals",
         ]
 
-        weaknesses = [
-            item.rstrip(".")
-            for item in analysis.weaknesses
-            if item.strip()
+        audience_content = (
+            f"This page is intended for {audience}. "
+            "The product's actual suitability for this audience "
+            "has not been independently established. "
+            "Check any prerequisites, limitations and "
+            "eligibility requirements with the seller."
+        )
+
+        price = getattr(product, "price", None)
+
+        if self._positive_number(price):
+            value_content = (
+                f"The recorded product price is "
+                f"R$ {float(price):,.2f}. "
+                "This amount may change. Confirm the currency, "
+                "final checkout price, taxes and any recurring "
+                "charges on the official product page."
+            )
+        else:
+            value_content = (
+                "The current product price has not been verified. "
+                "Check the official offer for pricing, payment "
+                "terms, recurring charges and any additional fees."
+            )
+
+        trust_items = [
+            "Check the identity and contact details of the seller",
+            "Look for independent customer feedback",
+            "Confirm the refund and cancellation policies",
+            "Verify any performance or outcome claims",
         ]
 
-        recommendations = [
-            item.rstrip(".")
-            for item in analysis.recommendations
-            if item.strip()
+        risks_content = (
+            "Important details may be incomplete or unverified. "
+            "Do not assume that missing complaints, refund data "
+            "or negative reviews mean a product has no risks. "
+            "Review the seller's terms and seek independent "
+            "information before purchasing."
+        )
+
+        next_steps = [
+            "Read the complete official product description",
+            "Confirm the current price and what is included",
+            "Review refund, cancellation and support terms",
+            "Compare the offer with other suitable options",
         ]
-
-        benefits = strengths[:4]
-
-        if not benefits:
-            benefits = [
-                "Structured product positioning",
-                "Clear target audience",
-                "Practical affiliate opportunity",
-            ]
 
         faq_items = [
             (
-                f"Who is {product.product_name} for? — "
-                f"It is designed for {audience}."
+                f"What is {name}? — "
+                + (
+                    description
+                    if description
+                    else "Its detailed features have not yet "
+                    "been verified. Consult the official seller."
+                )
             ),
             (
-                f"What is the opportunity score? — "
-                f"The current score is "
-                f"{product.opportunity_score:.1f}/100."
+                f"Who should consider {name}? — "
+                "People whose needs match the verified product "
+                "features and any stated prerequisites."
             ),
             (
-                f"How strong is market demand? — "
-                f"The current search volume is approximately "
-                f"{product.search_volume:,} searches per month."
+                "Is the price confirmed? — "
+                "Check the official checkout page for the "
+                "current price, currency and payment terms."
             ),
             (
-                f"What should users consider before purchasing? — "
-                "They should review the official sales page, product "
-                "claims, refund terms and suitability for their goals."
+                "What if I am not satisfied? — "
+                "Review the seller's current refund and "
+                "cancellation policies before purchasing."
             ),
         ]
 
-        trust_items = [
-            (
-                f"Refund rate monitored at "
-                f"{product.refund_rate:.1f}%"
-            ),
-            (
-                f"Google Trend score of "
-                f"{product.google_trend_score:.0f}/100"
-            ),
-            (
-                f"Competition score of "
-                f"{product.competition_score:.0f}/100"
-            ),
-            (
-                f"Analysis confidence of "
-                f"{analysis.confidence_score:.1f}%"
-            ),
-        ]
+        disclosure = (
+            "Affiliate disclosure: This page may contain "
+            "affiliate links. If you purchase through one "
+            "of those links, the publisher may earn a "
+            "commission, at no additional cost to you. "
+            "This disclosure must be reviewed and adjusted "
+            "to reflect the actual commercial relationship."
+        )
 
         sections = [
             LandingPageSection(
                 section_type="benefits",
-                heading="Why consider this product?",
+                heading="What Should You Look For?",
                 content=(
-                    "The available product and market data suggest "
-                    "several reasons this offer may deserve attention."
+                    "Before deciding, focus on the features "
+                    "and conditions that matter to you. "
+                    "The following are evaluation steps, "
+                    "not verified product benefits."
                 ),
                 items=benefits,
             ),
             LandingPageSection(
                 section_type="audience",
-                heading="Who is this for?",
-                content=(
-                    f"{product.product_name} is most relevant to "
-                    f"{audience}. Visitors should compare the product "
-                    "content and outcomes with their own goals."
-                ),
+                heading="Who Might This Product Suit?",
+                content=audience_content,
             ),
             LandingPageSection(
                 section_type="value",
-                heading="What makes the offer valuable?",
-                content=(
-                    f"The product has "
-                    f"{analysis.commercial_potential.lower()} commercial "
-                    f"potential, an opportunity score of "
-                    f"{product.opportunity_score:.1f}/100 and a "
-                    f"commission value of "
-                    f"R$ {product.commission_amount:,.2f}."
-                ),
+                heading="Pricing and Value",
+                content=value_content,
             ),
             LandingPageSection(
                 section_type="trust",
-                heading="Trust and market signals",
+                heading="How to Verify the Offer",
                 content=(
-                    "These indicators help visitors understand the "
-                    "commercial and market context before deciding."
+                    "Use independent evidence and official "
+                    "seller information to evaluate the offer."
                 ),
                 items=trust_items,
             ),
             LandingPageSection(
                 section_type="risks",
-                heading="What should you consider?",
-                content=(
-                    self._join_items(
-                        weaknesses
-                    )
-                ),
+                heading="Important Considerations",
+                content=risks_content,
             ),
             LandingPageSection(
                 section_type="recommendations",
-                heading="Recommended next steps",
+                heading="Your Next Steps",
                 content=(
-                    "Use a controlled strategy and validate performance "
-                    "before making a larger commitment."
+                    "Use this checklist before making "
+                    "a purchasing decision."
                 ),
-                items=recommendations[:4],
+                items=next_steps,
             ),
             LandingPageSection(
                 section_type="faq",
                 heading="Frequently Asked Questions",
                 content=(
-                    "Common questions visitors may ask before clicking "
-                    "through to the official offer."
+                    "Answers are based on available information. "
+                    "Confirm product-specific details with "
+                    "the official seller."
                 ),
                 items=faq_items,
             ),
-        ]
-
-        return [
             LandingPageSection(
-                section_type=section.section_type,
-                heading=section.heading,
-                content=self._apply_tone(
-                    text=section.content,
-                    tone=tone,
-                ),
-                items=section.items,
-            )
-            for section in sections
+                section_type="disclosure",
+                heading="Affiliate Disclosure",
+                content=disclosure,
+            ),
         ]
 
-    @staticmethod
-    def _apply_tone(
-        *,
-        text: str,
-        tone: str,
-    ) -> str:
-        if tone == "Friendly":
-            return (
-                "Here is the simple version: "
-                f"{text}"
-            )
-
-        if tone == "Educational":
-            return (
-                "To understand this clearly, "
-                f"{text}"
-            )
-
-        if tone == "Persuasive":
-            return (
-                f"{text} These signals support taking a closer look."
-            )
-
-        return text
+        return sections
 
     @staticmethod
-    def _join_items(
-        items: list[str],
-    ) -> str:
-        if not items:
-            return (
-                "No major weakness was detected from the "
-                "currently available data."
-            )
+    def _positive_number(value: Any) -> bool:
+        if value is None or isinstance(value, bool):
+            return False
 
-        if len(items) == 1:
-            return items[0] + "."
-
-        if len(items) == 2:
-            return (
-                f"{items[0]} and {items[1]}."
-            )
-
-        return (
-            ", ".join(
-                items[:-1]
-            )
-            + f", and {items[-1]}."
-        )
+        try:
+            return float(value) > 0
+        except (TypeError, ValueError, OverflowError):
+            return False
 
     @staticmethod
     def _estimate_word_count(
@@ -518,7 +465,7 @@ class LandingPageService(BaseContentGenerator):
         final_cta_text: str,
         final_cta_button: str,
     ) -> int:
-        text_parts = [
+        parts = [
             page_title,
             meta_description,
             hero_headline,
@@ -530,22 +477,15 @@ class LandingPageService(BaseContentGenerator):
         ]
 
         for section in sections:
-            text_parts.extend(
-                [
-                    section.heading,
-                    section.content,
-                    *section.items,
-                ]
-            )
+            parts.append(section.heading)
+            parts.append(section.content)
+            parts.extend(section.items or [])
 
-        return len(
-            " ".join(
-                text_parts
-            ).split()
-        )
+        return len(" ".join(parts).split())
 
-    @staticmethod
+    @classmethod
     def _calculate_conversion_score(
+        cls,
         *,
         product: DiscoveryProduct,
         analysis: ProductAnalysis,
@@ -553,6 +493,12 @@ class LandingPageService(BaseContentGenerator):
         sections: list[LandingPageSection],
         primary_cta: str,
     ) -> float:
+        """
+        Score draft completeness only.
+
+        This is not a predicted conversion rate or
+        a measure of expected sales performance.
+        """
         score = 0.0
 
         if audience.strip():
@@ -561,25 +507,19 @@ class LandingPageService(BaseContentGenerator):
         if primary_cta.strip():
             score += 15
 
-        if len(sections) >= 6:
+        if len(sections) >= 7:
             score += 20
 
-        if analysis.landing_page_potential == "Excellent":
-            score += 20
-
-        elif analysis.landing_page_potential == "Strong":
+        if cls._clean(product.description):
             score += 15
 
-        if product.opportunity_score >= 60:
+        if cls._valid_url(product.sales_page_url):
             score += 15
 
-        if product.refund_rate <= 5:
+        if cls._valid_url(product.affiliate_url):
             score += 10
 
-        if product.google_trend_score >= 70:
-            score += 5
+        if cls._positive_number(product.price):
+            score += 10
 
-        return round(
-            min(score, 100),
-            1,
-        )
+        return round(min(score, 100.0), 1)
