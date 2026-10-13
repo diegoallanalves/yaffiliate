@@ -108,6 +108,11 @@ PAGE_TRANSLATIONS = {
         "Choose a product from your shortlist and verify its affiliate link and commission before creating a campaign.": "Escolha um produto da sua lista e confirme o link de afiliado e a comissão antes de criar uma campanha.",
         "Your saved products are available in Campaign Generator. Open that page to create your marketing assets.": "Seus produtos salvos estão disponíveis no Gerador de Campanhas. Abra essa página para criar seus materiais de marketing.",
         "Affiliate networks could not be loaded": "Não foi possível carregar as redes de afiliados",
+        "Leave optional metrics blank when unknown. Enter 0 only when verified.": "Deixe as métricas opcionais em branco quando desconhecidas. Informe 0 apenas quando confirmado.",
+        "Research coverage": "Cobertura da pesquisa",
+        "Provisional score — insufficient research data.": "Pontuação provisória — dados de pesquisa insuficientes.",
+        "No advertising budget can be recommended yet.": "Ainda não é possível recomendar um orçamento de publicidade.",
+        "Commission values of zero are treated as unverified for scoring.": "Valores de comissão iguais a zero são considerados não verificados na pontuação.",
     },
 }
 
@@ -167,6 +172,12 @@ def show_latest_recommendation():
     c2.metric(tr("Risk level"), recommendation.risk_level)
     c3.metric(tr("Expected ROI"), recommendation.expected_roi)
 
+    coverage = st.session_state.get("latest_research_coverage")
+    if coverage is not None:
+        st.metric(tr("Research coverage"), f"{coverage:.0f}%")
+        if coverage < 70:
+            st.warning(tr("Provisional score — insufficient research data."))
+
     st.write(
         f"**{tr('Recommended channel')}:** "
         f"{recommendation.recommended_channel}"
@@ -174,10 +185,18 @@ def show_latest_recommendation():
     st.write(
         f"**{tr('Difficulty')}:** {recommendation.difficulty}"
     )
-    st.write(
-        f"**{tr('Suggested test budget')}:** "
-        f"{money(recommendation.recommended_budget)}"
-    )
+    if recommendation.recommended_budget == 0 and (
+        coverage is None or coverage < 70 or recommendation.risk_level == "Unknown"
+    ):
+        st.write(
+            f"**{tr('Suggested test budget')}:** "
+            f"{tr('No advertising budget can be recommended yet.')}"
+        )
+    else:
+        st.write(
+            f"**{tr('Suggested test budget')}:** "
+            f"{money(recommendation.recommended_budget)}"
+        )
 
     with st.expander(
         tr("Why YAffiliate recommends this"),
@@ -203,22 +222,31 @@ def save_product(data):
     """Save product, metrics, history and recommendation."""
     repo = ProductRepository()
 
+    # Missing research must remain None, not a fabricated zero.
+    # The products table currently requires numeric commission fields.
+    # Its default zero is therefore excluded from scoring unless verified later.
     factors = OpportunityFactors(
-        commission_amount=float(data["commission_amount"]),
-        commission_percent=float(data["commission_percent"]),
-        search_volume=int(data["search_volume"]),
-        competition_score=float(data["competition_score"]),
-        estimated_cpc=float(data["estimated_cpc"]),
-        google_trend_score=float(data["google_trend_score"]),
-        refund_rate=float(data["refund_rate"]),
-        gravity_score=float(data["gravity_score"]),
-        epc=float(data["epc"]),
+        commission_amount=(
+            float(data["commission_amount"])
+            if data["commission_amount"] > 0 else None
+        ),
+        commission_percent=(
+            float(data["commission_percent"])
+            if data["commission_percent"] > 0 else None
+        ),
+        search_volume=data["search_volume"],
+        competition_score=data["competition_score"],
+        estimated_cpc=data["estimated_cpc"],
+        google_trend_score=data["google_trend_score"],
+        refund_rate=data["refund_rate"],
+        gravity_score=data["gravity_score"],
+        epc=data["epc"],
     )
 
     score_service = OpportunityScoreService()
     recommendation_service = RecommendationService()
-
-    opportunity_score = score_service.calculate(factors)
+    score_details = score_service.calculate_details(factors)
+    opportunity_score = score_details["opportunity_score"]
 
     product_id = repo.create_product(
         product_name=data["product_name"],
@@ -237,13 +265,13 @@ def save_product(data):
 
     repo.add_product_metric(
         product_id=product_id,
-        epc=float(data["epc"]),
-        gravity_score=float(data["gravity_score"]),
-        search_volume=int(data["search_volume"]),
-        competition_score=float(data["competition_score"]),
-        estimated_cpc=float(data["estimated_cpc"]),
-        google_trend_score=float(data["google_trend_score"]),
-        refund_rate=float(data["refund_rate"]),
+        epc=data["epc"],
+        gravity_score=data["gravity_score"],
+        search_volume=data["search_volume"],
+        competition_score=data["competition_score"],
+        estimated_cpc=data["estimated_cpc"],
+        google_trend_score=data["google_trend_score"],
+        refund_rate=data["refund_rate"],
         opportunity_score=opportunity_score,
         data_source="Manual Streamlit entry",
     )
@@ -251,13 +279,13 @@ def save_product(data):
     OpportunityHistoryRepository().create_snapshot(
         product_id=product_id,
         opportunity_score=opportunity_score,
-        epc=float(data["epc"]),
-        gravity_score=float(data["gravity_score"]),
-        search_volume=int(data["search_volume"]),
-        competition_score=float(data["competition_score"]),
-        estimated_cpc=float(data["estimated_cpc"]),
-        google_trend_score=float(data["google_trend_score"]),
-        refund_rate=float(data["refund_rate"]),
+        epc=data["epc"],
+        gravity_score=data["gravity_score"],
+        search_volume=data["search_volume"],
+        competition_score=data["competition_score"],
+        estimated_cpc=data["estimated_cpc"],
+        google_trend_score=data["google_trend_score"],
+        refund_rate=data["refund_rate"],
     )
 
     recommendation = recommendation_service.generate(
@@ -275,6 +303,7 @@ def save_product(data):
     st.session_state["latest_recommendation"] = recommendation
     st.session_state["latest_recommendation_id"] = recommendation_id
     st.session_state["latest_product_id"] = product_id
+    st.session_state["latest_research_coverage"] = score_details["data_coverage"]
 
 
 def render_add_product():
@@ -369,12 +398,7 @@ def render_add_product():
             step=1.0,
         )
 
-        st.caption(
-            tr(
-                "Enter the actual commission offered by your affiliate "
-                "network. A default of zero means no amount has been entered."
-            )
-        )
+        st.caption(tr("Commission values of zero are treated as unverified for scoring."))
 
         sales_page_url = st.text_input(
             tr("Product sales page URL"),
@@ -391,13 +415,7 @@ def render_add_product():
         )
 
         with st.expander(tr("Advanced market metrics — optional")):
-            st.caption(
-                tr(
-                    "Only enter figures you have researched. "
-                    "Blank research represented by default zeros is not "
-                    "evidence of zero demand or zero advertising cost."
-                )
-            )
+            st.caption(tr("Leave optional metrics blank when unknown. Enter 0 only when verified."))
 
             c1, c2, c3 = st.columns(3)
 
@@ -405,18 +423,21 @@ def render_add_product():
                 tr("EPC (earnings per click)"),
                 min_value=0.0,
                 step=0.1,
+                value=None,
             )
 
             gravity_score = c2.number_input(
                 tr("Gravity score"),
                 min_value=0.0,
                 step=1.0,
+                value=None,
             )
 
             search_volume = c3.number_input(
                 tr("Monthly search volume"),
                 min_value=0,
                 step=100,
+                value=None,
             )
 
             c4, c5, c6 = st.columns(3)
@@ -426,12 +447,14 @@ def render_add_product():
                 min_value=0.0,
                 max_value=100.0,
                 step=1.0,
+                value=None,
             )
 
             estimated_cpc = c5.number_input(
                 tr("Estimated CPC (cost per click)"),
                 min_value=0.0,
                 step=0.1,
+                value=None,
             )
 
             google_trend_score = c6.number_input(
@@ -439,6 +462,7 @@ def render_add_product():
                 min_value=0.0,
                 max_value=100.0,
                 step=1.0,
+                value=None,
             )
 
             refund_rate = st.number_input(
@@ -446,6 +470,7 @@ def render_add_product():
                 min_value=0.0,
                 max_value=100.0,
                 step=1.0,
+                value=None,
             )
 
         notes = st.text_area(
