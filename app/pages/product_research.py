@@ -1,4 +1,3 @@
-
 """Product Research workspace for YAffiliate."""
 
 from __future__ import annotations
@@ -19,7 +18,46 @@ from app.services.opportunity_score_service import (
 )
 from app.services.recommendation_service import RecommendationService
 from app.services.translation_service import get_language, ui
+from app.services.currency_service import format_currency
 
+
+# Common choices are stored as standard country and language codes.
+# Keep labels separate from database values.
+COUNTRY_OPTIONS = {
+    "BR": "Brazil (BR)",
+    "US": "United States (US)",
+    "GB": "United Kingdom (GB)",
+    "CA": "Canada (CA)",
+    "AU": "Australia (AU)",
+    "PT": "Portugal (PT)",
+    "ES": "Spain (ES)",
+    "MX": "Mexico (MX)",
+    "FR": "France (FR)",
+    "DE": "Germany (DE)",
+    "IT": "Italy (IT)",
+    "CN": "China (CN)",
+    "IN": "India (IN)",
+    "JP": "Japan (JP)",
+    "HU": "Hungary (HU)",
+}
+
+LANGUAGE_OPTIONS = {
+    "pt-BR": "Portuguese — Brazil (pt-BR)",
+    "pt-PT": "Portuguese — Portugal (pt-PT)",
+    "en-US": "English — United States (en-US)",
+    "en-GB": "English — United Kingdom (en-GB)",
+    "en-CA": "English — Canada (en-CA)",
+    "en-AU": "English — Australia (en-AU)",
+    "es-ES": "Spanish — Spain (es-ES)",
+    "es-MX": "Spanish — Mexico (es-MX)",
+    "fr-FR": "French — France (fr-FR)",
+    "de-DE": "German — Germany (de-DE)",
+    "it-IT": "Italian — Italy (it-IT)",
+    "zh-CN": "Chinese — China (zh-CN)",
+    "hi-IN": "Hindi — India (hi-IN)",
+    "ja-JP": "Japanese — Japan (ja-JP)",
+    "hu-HU": "Hungarian — Hungary (hu-HU)",
+}
 
 # Database values must remain in English.
 STATUS_OPTIONS = [
@@ -57,6 +95,14 @@ PAGE_TRANSLATIONS = {
         "Archived": "Arquivado",
         "All": "Todos",
         "Product economics": "Dados financeiros do produto",
+        "Original currency": "Moeda original",
+        "Choose currency": "Selecione a moeda",
+        "Select the original currency for the product price and commission.": "Selecione a moeda original do preço e da comissão do produto.",
+        "Select a currency for a priced product.": "Selecione uma moeda para um produto com valor informado.",
+        "Product price": "Preço do produto",
+        "Commission per sale": "Comissão por venda",
+        "Mixed currencies — no average": "Moedas diferentes — sem média",
+        "Currencies are not converted in this view.": "As moedas não são convertidas nesta visualização.",
         "Product price (R$)": "Preço do produto (R$)",
         "Commission per sale (R$)": "Comissão por venda (R$)",
         "Commission (%)": "Comissão (%)",
@@ -136,12 +182,14 @@ def to_float(value, default=None):
         return default
 
 
-def money(value):
-    """Format BRL without treating missing data as a verified zero."""
+def money(value, currency_code=None):
+    """Display original currency, without assuming one when unknown."""
     number = to_float(value)
     if number is None:
         return tr("Not provided")
-    return f"R$ {number:,.2f}"
+    if not currency_code or not str(currency_code).strip():
+        return f"{number:,.2f} ({tr('Not provided')})"
+    return format_currency(number, str(currency_code))
 
 
 def show_latest_recommendation():
@@ -254,6 +302,7 @@ def save_product(data):
         category=data["category"] or None,
         language_code=data["language_code"] or None,
         country_code=data["country_code"] or None,
+        currency_code=data["currency_code"],
         price=float(data["price"]),
         commission_amount=float(data["commission_amount"]),
         commission_percent=float(data["commission_percent"]),
@@ -303,6 +352,7 @@ def save_product(data):
     st.session_state["latest_recommendation"] = recommendation
     st.session_state["latest_recommendation_id"] = recommendation_id
     st.session_state["latest_product_id"] = product_id
+    st.session_state["latest_currency_code"] = data["currency_code"]
     st.session_state["latest_research_coverage"] = score_details["data_coverage"]
 
 
@@ -357,16 +407,20 @@ def render_add_product():
 
         c3, c4, c5 = st.columns(3)
 
-        country_code = c3.text_input(
+        country_code = c3.selectbox(
             tr("Country code"),
-            value="BR",
-            max_chars=10,
+            options=list(COUNTRY_OPTIONS),
+            format_func=lambda code: COUNTRY_OPTIONS[code],
+            index=0,
         )
 
-        language_code = c4.text_input(
+        # A form does not rerun when its fields change, so users choose
+        # the language explicitly rather than relying on a stale suggestion.
+        language_code = c4.selectbox(
             tr("Language code"),
-            value="pt-BR",
-            max_chars=20,
+            options=list(LANGUAGE_OPTIONS),
+            format_func=lambda code: LANGUAGE_OPTIONS[code],
+            index=0,
         )
 
         status = c5.selectbox(
@@ -377,16 +431,23 @@ def render_add_product():
 
         st.markdown(f"#### {tr('Product economics')}")
 
+        currency_code = st.selectbox(
+            tr("Original currency"),
+            options=[None, "BRL", "USD", "EUR", "GBP"],
+            format_func=lambda code: code if code else tr("Choose currency"),
+            help=tr("Select the original currency for the product price and commission."),
+        )
+
         c1, c2, c3 = st.columns(3)
 
         price = c1.number_input(
-            tr("Product price (R$)"),
+            tr("Product price"),
             min_value=0.0,
             step=10.0,
         )
 
         commission_amount = c2.number_input(
-            tr("Commission per sale (R$)"),
+            tr("Commission per sale"),
             min_value=0.0,
             step=10.0,
         )
@@ -494,6 +555,10 @@ def render_add_product():
         st.error(tr("Please enter a product name."))
         return
 
+    if currency_code is None and (price > 0 or commission_amount > 0):
+        st.error(tr("Select a currency for a priced product."))
+        return
+
     for label, url in [
         ("Sales page", sales_page_url),
         ("Affiliate link", affiliate_url),
@@ -513,6 +578,7 @@ def render_add_product():
         "category": category.strip(),
         "country_code": country_code.strip(),
         "language_code": language_code.strip(),
+        "currency_code": currency_code,
         "status": status,
         "price": price,
         "commission_amount": commission_amount,
@@ -602,10 +668,21 @@ def render_saved_products():
     commissions = df["CommissionAmount"].dropna()
     scores = df["OpportunityScore"].dropna()
 
+    # Never average monetary values across currencies or unknown currencies.
+    currency_values = df.get("CurrencyCode", pd.Series(index=df.index, dtype=object))
+    valid_commissions = df.loc[df["CommissionAmount"].notna() & (df["CommissionAmount"] > 0)]
+    valid_currencies = currency_values.loc[valid_commissions.index].dropna().unique()
+    comparable = (
+        len(valid_commissions) > 0
+        and len(valid_currencies) == 1
+        and currency_values.loc[valid_commissions.index].notna().all()
+    )
     c2.metric(
         tr("Average commission"),
-        money(commissions.mean())
-        if not commissions.empty
+        money(valid_commissions["CommissionAmount"].mean(), valid_currencies[0])
+        if comparable
+        else tr("Mixed currencies — no average")
+        if len(valid_commissions) > 0
         else tr("Not provided"),
     )
 
@@ -624,6 +701,7 @@ def render_saved_products():
         "NetworkName",
         "Category",
         "Status",
+        "CurrencyCode",
         "Price",
         "CommissionAmount",
         "CommissionPercent",
@@ -632,10 +710,40 @@ def render_saved_products():
         "OpportunityScore",
     ]
 
+    display_df = df[[col for col in display_columns if col in df.columns]].copy()
+    if "Price" in display_df:
+        display_df["Price"] = [
+            money(value, currency)
+            for value, currency in zip(df["Price"], currency_values)
+        ]
+    if "CommissionAmount" in display_df:
+        display_df["CommissionAmount"] = [
+            money(value, currency)
+            for value, currency in zip(df["CommissionAmount"], currency_values)
+        ]
+
+    # Fixed height provides vertical scrolling when the portfolio grows.
+    # Explicit column widths provide horizontal scrolling on narrow screens.
+    st.caption("Scroll inside the table to browse rows and columns.")
     st.dataframe(
-        df[[col for col in display_columns if col in df.columns]],
+        display_df,
         hide_index=True,
         use_container_width=True,
+        height=330,
+        column_config={
+            "ProductID": st.column_config.NumberColumn("ID", width="small"),
+            "ProductName": st.column_config.TextColumn("Product", width="medium"),
+            "NetworkName": st.column_config.TextColumn("Network", width="medium"),
+            "Category": st.column_config.TextColumn("Category", width="medium"),
+            "Status": st.column_config.TextColumn("Status", width="small"),
+            "CurrencyCode": st.column_config.TextColumn("Currency", width="small"),
+            "Price": st.column_config.TextColumn("Price", width="medium"),
+            "CommissionAmount": st.column_config.TextColumn("Commission", width="medium"),
+            "CommissionPercent": st.column_config.NumberColumn("Commission %", width="small"),
+            "SearchVolume": st.column_config.NumberColumn("Search volume", width="medium"),
+            "EstimatedCPC": st.column_config.NumberColumn("Estimated CPC", width="medium"),
+            "OpportunityScore": st.column_config.NumberColumn("Score", width="small"),
+        },
     )
 
     chart_columns = [
@@ -655,7 +763,18 @@ def render_saved_products():
     with st.expander(
         tr("Compare commissions and advertising costs")
     ):
-        if len(chart_df) < 2:
+        # CPC currency is not tracked yet. Avoid a misleading cross-currency chart.
+        st.caption(tr("Currencies are not converted in this view."))
+        chart_currencies = (
+            chart_df["CurrencyCode"].dropna().unique()
+            if "CurrencyCode" in chart_df else []
+        )
+        same_known_currency = (
+            len(chart_currencies) == 1
+            and "CurrencyCode" in chart_df
+            and chart_df["CurrencyCode"].notna().all()
+        )
+        if len(chart_df) < 2 or not same_known_currency:
             st.info(
                 tr(
                     "Add researched commission and CPC values for at "
@@ -671,10 +790,10 @@ def render_saved_products():
                 hover_name="ProductName",
                 title=tr("Commission versus estimated CPC"),
                 labels={
-                    "EstimatedCPC": tr("Estimated CPC (R$)"),
+                    "EstimatedCPC": tr("Estimated CPC (cost per click)"),
                     "CommissionAmount": tr(
-                        "Commission per sale (R$)"
-                    ),
+                        "Commission per sale"
+                    ) + f" ({chart_currencies[0]})",
                     "OpportunityScore": tr("Opportunity score"),
                 },
             )

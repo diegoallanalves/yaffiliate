@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,6 +8,9 @@ from dataclasses import dataclass
 class DiscoveryProduct:
     """
     Standard product format returned by all discovery collectors.
+
+    CurrencyCode represents the product's original currency.
+    None means the original currency is not yet known.
     """
 
     product_name: str
@@ -32,6 +36,22 @@ class DiscoveryProduct:
     sales_page_url: str | None
     affiliate_url: str | None
     description: str | None = None
+    currency_code: str | None = None
+
+    def __post_init__(self) -> None:
+        """Normalize and validate an explicitly supplied currency."""
+        if self.currency_code is None:
+            return
+
+        currency = self.currency_code.strip().upper()
+
+        if len(currency) != 3 or not currency.isalpha():
+            raise ValueError(
+                "Currency code must be a three-letter code "
+                "such as BRL or USD."
+            )
+
+        self.currency_code = currency
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -40,6 +60,7 @@ class DiscoveryProduct:
             "Category": self.category,
             "CountryCode": self.country_code,
             "LanguageCode": self.language_code,
+            "CurrencyCode": self.currency_code,
             "Price": self.price,
             "CommissionAmount": self.commission_amount,
             "CommissionPercent": self.commission_percent,

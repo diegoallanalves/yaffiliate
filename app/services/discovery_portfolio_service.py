@@ -91,6 +91,7 @@ class DiscoveryPortfolioService:
             category=product.category,
             language_code=product.language_code,
             country_code=product.country_code,
+            currency_code=product.currency_code,
             price=float(product.price),
             commission_amount=float(
                 product.commission_amount

@@ -26,6 +26,7 @@ class HotmartCollector(BaseCollector):
             "category": "Education",
             "country_code": "BR",
             "language_code": "pt-BR",
+            "currency_code": "BRL",
             "price": 297.00,
             "commission_amount": 150.00,
             "commission_percent": 50.00,
@@ -49,6 +50,7 @@ class HotmartCollector(BaseCollector):
             "category": "Education",
             "country_code": "BR",
             "language_code": "pt-BR",
+            "currency_code": "BRL",
             "price": 197.00,
             "commission_amount": 90.00,
             "commission_percent": 45.00,
@@ -72,6 +74,7 @@ class HotmartCollector(BaseCollector):
             "category": "Business",
             "country_code": "BR",
             "language_code": "pt-BR",
+            "currency_code": "BRL",
             "price": 497.00,
             "commission_amount": 225.00,
             "commission_percent": 45.00,
@@ -95,6 +98,7 @@ class HotmartCollector(BaseCollector):
             "category": "Data Analytics",
             "country_code": "BR",
             "language_code": "pt-BR",
+            "currency_code": "BRL",
             "price": 347.00,
             "commission_amount": 170.00,
             "commission_percent": 49.00,
@@ -118,6 +122,7 @@ class HotmartCollector(BaseCollector):
             "category": "Technology",
             "country_code": "BR",
             "language_code": "pt-BR",
+            "currency_code": "BRL",
             "price": 397.00,
             "commission_amount": 185.00,
             "commission_percent": 46.50,
@@ -141,6 +146,7 @@ class HotmartCollector(BaseCollector):
             "category": "Marketing",
             "country_code": "BR",
             "language_code": "pt-BR",
+            "currency_code": "BRL",
             "price": 297.00,
             "commission_amount": 140.00,
             "commission_percent": 47.00,
@@ -355,4 +361,5 @@ class HotmartCollector(BaseCollector):
             description=str(
                 item["description"]
             ),
+            currency_code=str(item["currency_code"]),
         )

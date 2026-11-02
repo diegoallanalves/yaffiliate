@@ -1,4 +1,3 @@
-
 """Supabase repository for YAffiliate products."""
 
 from __future__ import annotations
@@ -70,6 +69,7 @@ class ProductRepository:
         language_code: str | None = None,
         country_code: str | None = None,
         price: float = 0,
+        currency_code: str | None = None,
         commission_amount: float = 0,
         commission_percent: float = 0,
         sales_page_url: str | None = None,
@@ -95,6 +95,7 @@ class ProductRepository:
                     "language_code": language_code,
                     "country_code": country_code,
                     "price": price,
+                    "currency_code": self._normalize_currency_code(currency_code),
                     "commission_amount": commission_amount,
                     "commission_percent": commission_percent,
                     "sales_page_url": sales_page_url,
@@ -212,6 +213,7 @@ class ProductRepository:
             "language_code",
             "country_code",
             "price",
+            "currency_code",
             "commission_amount",
             "commission_percent",
             "sales_page_url",
@@ -245,6 +247,11 @@ class ProductRepository:
             filtered_changes["product_name"] = str(
                 filtered_changes["product_name"]
             ).strip()
+
+        if "currency_code" in filtered_changes:
+            filtered_changes["currency_code"] = self._normalize_currency_code(
+                filtered_changes["currency_code"]
+            )
 
         filtered_changes["updated_at"] = (
             datetime.now(timezone.utc).isoformat()
@@ -356,6 +363,18 @@ class ProductRepository:
         ]
 
     @staticmethod
+    def _normalize_currency_code(value: str | None) -> str | None:
+        """Keep unknown currency as NULL; normalize supplied ISO-style codes."""
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("Currency code must be a three-letter string or None.")
+        code = value.strip().upper()
+        if len(code) != 3 or not code.isascii() or not code.isalpha():
+            raise ValueError("Currency code must be three letters, such as BRL or USD.")
+        return code
+
+    @staticmethod
     def _format_product(
         row: dict[str, Any],
     ) -> dict[str, Any]:
@@ -370,6 +389,7 @@ class ProductRepository:
             "LanguageCode": row.get("language_code"),
             "CountryCode": row.get("country_code"),
             "Price": row.get("price"),
+            "CurrencyCode": row.get("currency_code"),
             "CommissionAmount": row.get(
                 "commission_amount"
             ),
