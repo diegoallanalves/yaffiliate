@@ -4,15 +4,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any
 
 import pandas as pd
 
 from app.repositories.campaign_repository import CampaignRepository
+from app.repositories.product_repository import ProductRepository
 from app.repositories.database import get_setting, read_table
 from app.services.campaign_record_service import campaign_display_name
 from app.services.currency_service import SUPPORTED_CURRENCIES, convert_currency
-from app.services.scoring import add_opportunity_score
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +23,7 @@ class DashboardSnapshot:
     keywords: pd.DataFrame
     campaigns: list[dict[str, Any]]
     reporting_currency: str = "BRL"
+    product_load_error: str | None = None
 
     @property
     def campaign_count(self) -> int:
@@ -40,16 +42,19 @@ class DashboardSnapshot:
                 continue
 
             try:
-                profit = float(row["profit"])
-                revenue = float(row["revenue"])
-                budget = float(row["budget"])
+                values = [
+                    float(row[column])
+                    for column in ("profit", "revenue", "budget")
+                ]
+                if not all(isfinite(value) for value in values):
+                    raise ValueError("Invalid financial amount")
             except (KeyError, TypeError, ValueError):
                 skipped += 1
                 continue
 
             amounts = [
                 convert_currency(value, source, self.reporting_currency)
-                for value in (profit, revenue, budget)
+                for value in values
             ]
 
             if any(value is None for value in amounts):
@@ -78,13 +83,14 @@ class DashboardSnapshot:
 
 
 class DashboardService:
-    """Combine local research data with cloud campaign activity."""
+    """Combine Supabase products and campaigns with local scenario data."""
 
     def __init__(
         self,
         *,
         user_id: str,
         campaign_repository: CampaignRepository | None = None,
+        product_repository: ProductRepository | None = None,
     ) -> None:
         if not user_id:
             raise ValueError("An authenticated user ID is required.")
@@ -93,9 +99,39 @@ class DashboardService:
         self.campaign_repository = (
             campaign_repository or CampaignRepository()
         )
+        self.product_repository = (
+            product_repository or ProductRepository()
+        )
 
     def get_snapshot(self) -> DashboardSnapshot:
-        products = add_opportunity_score(read_table("products"))
+        product_load_error = None
+
+        try:
+            products = pd.DataFrame(
+                self.product_repository.list_products()
+            )
+
+            products = products.rename(
+                columns={
+                    "ProductID": "product_id",
+                    "ProductName": "name",
+                    "NetworkName": "network",
+                    "OpportunityScore": "opportunity_score",
+                    "CommissionAmount": "commission",
+                    "SearchVolume": "search_volume",
+                    "CurrencyCode": "currency_code",
+                }
+            )
+
+            if "opportunity_score" not in products.columns:
+                products["opportunity_score"] = pd.Series(
+                    dtype="float64"
+                )
+
+        except Exception as error:
+            products = pd.DataFrame()
+            product_load_error = str(error)
+
         scenarios = read_table("campaign_scenarios")
         keywords = read_table("keywords")
 
@@ -120,9 +156,9 @@ class DashboardService:
             keywords=keywords,
             campaigns=campaigns,
             reporting_currency=currency,
+            product_load_error=product_load_error,
         )
 
     @staticmethod
     def campaign_display_name(row: dict[str, Any]) -> str:
-        """Return a readable saved-campaign name."""
         return campaign_display_name(row)
