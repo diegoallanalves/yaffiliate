@@ -17,3 +17,9 @@ venv/
 myenv/
 .env.*
 !.env.example
+
+# Supabase CLI temporary files
+supabase/.temp/
+
+# Local database export
+yaffiliate_schema.sql
